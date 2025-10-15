@@ -206,8 +206,8 @@ class BTCWallet():
         address = keys[0].address
         return address
 
-    def make_multipayout(self, payout_list, fee):
-        fee = decimal.Decimal(config['NETWORK_FEE'])
+    def make_multipayout(self, payout_list, btc_fee):
+        fee = Value.from_satoshi(btc_fee).value
         payout_results = []
         for payout in payout_list:
             if not self.is_valid_btc_address(payout['dest']):
@@ -220,10 +220,10 @@ class BTCWallet():
 
         network_fee_btc = decimal.Decimal(str(self.get_transaction_price()))
         fee = decimal.Decimal(str(fee))
-
         if network_fee_btc > fee:
-            raise Exception(f"Current fee is {fee} but network fee is {network_fee_btc}")
-
+            network_fee = decimal_value_to_satoshi(network_fee_btc)
+            raise Exception(f"Current fee is {btc_fee} but network fee is {network_fee}")
+        network_fee_per_kb = decimal_value_to_satoshi(fee or network_fee_btc)
         total_fee = decimal.Decimal(len(payout_list)) * network_fee_btc
         reserved = decimal.Decimal(str(config['ACCOUNT_RESERVED_AMOUNT']))
         should_pay += total_fee + reserved
@@ -234,10 +234,9 @@ class BTCWallet():
                 f"Please note that {should_pay} includes {reserved} which is reserved by the account "
                 f"and network fee for all transactions."
             )
-
         for payout in payout_list:
             satoshi_amount = decimal_value_to_satoshi(payout['amount'])
-            tx = self.current_wallet().send_to(payout['dest'], satoshi_amount)
+            tx = self.current_wallet().send_to(payout['dest'], satoshi_amount, fee_per_kb=network_fee_per_kb)
             try:
                 tx.send()
                 payout_results.append({
