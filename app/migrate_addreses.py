@@ -205,7 +205,9 @@ def migrate_addreses():
         btc_wallet = Wallet.create('Wallet7', wif, witness_type='segwit', purpose='84')
         # transactions = list_transactions()
         # save_sent_addresses(transactions)
-        quantity_generated_adresses = get_quantity_generated_adresses(descriptor)
+        legacy_address = list_legacy_address()
+        quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
+
         db_wallet = db.session.query(DbWallet).first()
         db_wallet.generated_address_count = quantity_generated_adresses
         db_wallet.migrated = True
