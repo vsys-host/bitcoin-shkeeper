@@ -156,16 +156,13 @@ class BTCWallet():
         return address_list
 
     def get_all_accounts(self):
-        wallet = self.current_wallet()
-        keys_data = {
-            key.address: {
-                "private": key.private,
-                "public": key.public,
-                "public_address": key.keys()
-            }
-            for key in wallet.keys()
-        }
-        return keys_data
+      wallet = self.current_wallet()
+      current_index_path = wallet.current_index_path()
+      addresses = [
+          key.address for key in wallet.keys()
+          if key.path.startswith(f"m/84'/{current_index_path}'/0'/0/") or key.path.startswith("m/0'/0/")
+      ]
+      return addresses
 
     def generate_wallet_name(self):
         adjectives = ["brave", "lucky", "silent", "quick", "happy", "clever", "bold", "wise", "calm", "fierce"]

@@ -75,7 +75,3 @@ def get_all_addresses():
     w = BTCWallet()
     all_addresses_list = w.get_all_accounts()
     return all_addresses_list
-    
-
-
-    
