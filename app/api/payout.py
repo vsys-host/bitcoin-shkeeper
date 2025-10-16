@@ -6,6 +6,7 @@ from sqlalchemy.exc import PendingRollbackError
 from app.db_import import db
 import decimal
 from app.celery_app import celery
+from app.lib.values import decimal_value_to_satoshi
 from ..tasks import make_multipayout 
 from . import api
 from ..wallet import BTCWallet
@@ -18,7 +19,7 @@ def calc_tx_fee(amount):
     if g.symbol == "BTC":
         w = BTCWallet()
         fee = w.get_transaction_price()
-        return {'accounts_num': 1, 'fee': float(fee)}
+        return {'accounts_num': 1, 'fee': float(fee), 'fee_satoshi': decimal_value_to_satoshi(fee) }
     else:
         return {'status': 'error', 'msg': 'unknown crypto' }
 
@@ -49,13 +50,13 @@ def multipayout():
         raise Exception(f"{g.symbol} is not defined in config, cannot make payout")
     pass
     
-@api.post('/payout/<to>/<decimal:amount>')
-def payout(to, amount):
+@api.post('/payout/<to>/<decimal:amount>/<fee>')
+def payout(to, amount, fee):
     logger.warning(f'starting payout {amount}, to {to}')
     payout_list = [{ "dest": to, "amount": amount }]
     if g.symbol == 'BTC':
         payout_list = [{ "dest": to, "amount": amount }]
-        task = (make_multipayout.s(g.symbol, payout_list, decimal.Decimal(config['NETWORK_FEE']))).apply_async()        
+        task = (make_multipayout.s(g.symbol, payout_list, decimal.Decimal(fee) if fee else decimal.Decimal(config['NETWORK_FEE']))).apply_async()
         return {'task_id': task.id}
     else:
         raise Exception(f"{g.symbol} is not defined in config, cannot make payout")

@@ -885,9 +885,9 @@ class Wallet(object):
         if account_id is not None:
             qr = qr.filter_by(account_id=account_id)
         acckey = qr.first()
-        if len(qr.all()) > 1 and "account'" in self.key_path:
-            _logger.warning("No account_id specified and more than one account found for this network %s. "
-                            "Using a random account" % network)
+        # if len(qr.all()) > 1 and "account'" in self.key_path:
+        #     _logger.warning("No account_id specified and more than one account found for this network %s. "
+        #                     "Using a random account" % network)
         if account_id is None:
             if acckey:
                 account_id = acckey.account_id
@@ -1917,7 +1917,7 @@ class Wallet(object):
 
     def transaction_create(self, output_arr, input_arr=None, input_key_id=None, account_id=None, network=None, fee=None,
                            min_confirms=1, max_utxos=None, locktime=0, number_of_change_outputs=1,
-                           random_output_order=True, replace_by_fee=False):
+                           random_output_order=True, replace_by_fee=False, fee_per_kb=None):
 
         if not isinstance(output_arr, list):
             raise WalletError("Output array must be a list of tuples with address and amount. "
@@ -1962,7 +1962,7 @@ class Wallet(object):
             priority = ''
             if isinstance(fee, str):
                 priority = fee
-            transaction.fee_per_kb = srv.estimatefee(blocks=n_blocks, priority=priority)
+            transaction.fee_per_kb = fee_per_kb or srv.estimatefee(blocks=n_blocks, priority=priority)
             if not input_arr:
                 fee_estimate = int(transaction.estimate_size(number_of_change_outputs=number_of_change_outputs) /
                                    1000.0 * transaction.fee_per_kb)
@@ -2155,7 +2155,7 @@ class Wallet(object):
 
     def send(self, output_arr, input_arr=None, input_key_id=None, account_id=None, network=None, fee=None,
              min_confirms=1, priv_keys=None, max_utxos=None, locktime=0, broadcast=False, number_of_change_outputs=1,
-             random_output_order=True, replace_by_fee=False):
+             random_output_order=True, replace_by_fee=False, fee_per_kb=None):
 
         if input_arr and max_utxos and len(input_arr) > max_utxos:
             raise WalletError("Input array contains %d UTXO's but max_utxos=%d parameter specified" %
@@ -2163,7 +2163,7 @@ class Wallet(object):
 
         transaction = self.transaction_create(output_arr, input_arr, input_key_id, account_id, network, fee,
                                               min_confirms, max_utxos, locktime, number_of_change_outputs,
-                                              random_output_order, replace_by_fee)
+                                              random_output_order, replace_by_fee, fee_per_kb=fee_per_kb)
         transaction.sign(priv_keys)
         # Calculate exact fees and update change output if necessary
         if fee is None and transaction.fee_per_kb and transaction.change:
@@ -2189,12 +2189,12 @@ class Wallet(object):
 
     def send_to(self, to_address, amount, input_key_id=None, account_id=None, network=None, fee=None, min_confirms=1,
                 priv_keys=None, locktime=0, broadcast=False, number_of_change_outputs=1, random_output_order=True,
-                replace_by_fee=False):
+                replace_by_fee=False, fee_per_kb=None):
         outputs = [(to_address, amount)]
         return self.send(outputs, input_key_id=input_key_id, account_id=account_id, network=network, fee=fee,
                          min_confirms=min_confirms, priv_keys=priv_keys, locktime=locktime, broadcast=broadcast,
                          number_of_change_outputs=number_of_change_outputs, random_output_order=random_output_order,
-                         replace_by_fee=replace_by_fee)
+                         replace_by_fee=replace_by_fee, fee_per_kb=fee_per_kb)
 
     def sweep(self, to_address, account_id=None, input_key_id=None, network=None, max_utxos=999, min_confirms=1,
               fee_per_kb=None, fee=None, locktime=0, broadcast=False, replace_by_fee=False):
