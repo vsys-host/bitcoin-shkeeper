@@ -885,9 +885,9 @@ class Wallet(object):
         if account_id is not None:
             qr = qr.filter_by(account_id=account_id)
         acckey = qr.first()
-        if len(qr.all()) > 1 and "account'" in self.key_path:
-            _logger.warning("No account_id specified and more than one account found for this network %s. "
-                            "Using a random account" % network)
+        # if len(qr.all()) > 1 and "account'" in self.key_path:
+        #     _logger.warning("No account_id specified and more than one account found for this network %s. "
+        #                     "Using a random account" % network)
         if account_id is None:
             if acckey:
                 account_id = acckey.account_id
@@ -1076,32 +1076,6 @@ class Wallet(object):
                 break
             txs_found = True
         return txs_found
-
-    # def createwallet(self, attrs):
-    #     srv = self._build_service()
-    #     srv.createwallet(attrs=attrs)
-
-    # def created_and_import_descriptors(self):
-    #     key = self.get_key(0)
-    #     account_path = "84'/1'/0'"
-    #     account_hdkey = self.key_for_path(f"m/{account_path}")
-    #     hdkey = account_hdkey._hdkey_object
-    #     fingerprint = hdkey.fingerprint.hex()
-    #     vpub = hdkey.wif_public()
-    #     def convert_vpub_to_tpub(vpub):
-    #         decoded = base58.b58decode_check(vpub)
-    #         tpub_prefix = bytes.fromhex('043587cf')
-    #         new_key = tpub_prefix + decoded[4:]
-    #         return base58.b58encode_check(new_key).decode()
-    #     tpub = convert_vpub_to_tpub(vpub)
-    #     account_path = key.path
-    #     derivation = "/".join(account_path.split("/")[1:4])
-    #     descriptor_no_checksum = f"wpkh([{fingerprint}/{derivation}]{tpub}/0/*)"
-    #     srv = self._build_service()
-
-    #     result = srv.created_and_import_descriptors(descriptor_no_checksum)
-    #     print("result created_and_import_descriptors")
-    #     print(f"{result}")
     
     def scan(self, scan_gap_limit=1, account_id=None, change=None, rescan_used=False, network=None, keys_ignore=None, block=''):
         network, account_id, _ = self._get_account_defaults(network, account_id)

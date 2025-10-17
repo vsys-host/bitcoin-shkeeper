@@ -160,7 +160,7 @@ class BTCWallet():
       current_index_path = wallet.current_index_path()
       addresses = [
           key.address for key in wallet.keys()
-          if key.path.startswith(f"m/84'/{current_index_path}'/0'/0/") or key.path.startswith("m/0'/0/")
+          if key.path.startswith(f"m/84'/{current_index_path}'/0'/0/") or key.path.startswith("m/0'/0'/")
       ]
       return addresses
 
