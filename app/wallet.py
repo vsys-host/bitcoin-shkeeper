@@ -113,6 +113,7 @@ class BTCWallet():
         w = self.wallet()
         if not w:
             self.generate_address()
+            w = self.wallet()
         w.scan()
     
     def db_wallet(self):
@@ -123,6 +124,7 @@ class BTCWallet():
         dbw = self.db_wallet()
         if dbw is None:
             self.generate_address()
+            dbw = self.db_wallet()
         return dbw.name
 
     def get_dump(self):

@@ -4,14 +4,18 @@ from app.celery_app import celery
 from celery.schedules import crontab
 from celery.utils.log import get_task_logger
 import requests as rq
-
 from .celery_app import celery
 from .config import config
 from .utils import skip_if_running
 from .wallet import BTCWallet
 from .logging import logger
+from app.migrate_addreses import migrate_addreses
 
 logger = get_task_logger(__name__)
+
+@celery.task
+def migrate_wallet_task():
+    migrate_addreses()
 
 @celery.task()
 def make_multipayout(symbol, payout_list, fee):

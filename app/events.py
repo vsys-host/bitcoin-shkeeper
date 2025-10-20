@@ -2,7 +2,7 @@ import time
 from app.logging import logger
 from app.config import config
 from app.wallet import BTCWallet
-from app.migrate_addreses import migrate_addreses
+from app.tasks import migrate_wallet_task
 from app.models import DbCacheVars
 from app.lib.services.services import Service
 from decimal import Decimal
@@ -73,7 +73,7 @@ def events_listener():
         btc_wallet = BTCWallet()
         wallet = btc_wallet.wallet()
         if os.path.isfile('/root/.bitcoin/shkeeper/wallet.dat') and not wallet.migrated:
-            migrate_addreses()
+            migrate_wallet_task.delay()
         log_loop()
     except Exception as e:
         logger.exception(f"Exception in main block scanner loop: {e}")
