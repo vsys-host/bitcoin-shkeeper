@@ -115,7 +115,7 @@ class Service(object):
         while attempt < retries:
             attempt += 1
             self._reset_results()
-            provider_lst = ["bitcoind"]  # у тебя пока один провайдер
+            provider_lst = ["bitcoind"] # one provider
 
             for sp in provider_lst:
                 try:
@@ -130,8 +130,6 @@ class Service(object):
                         "denominator": 100000000,
                         "network_overrides": None
                     }
-                    print("provider_conf")
-                    print(f"{provider_conf}")
                     client = getattr(services, provider_conf['provider'])
                     providerclient = getattr(client, provider_conf['client_class'])
 
@@ -147,10 +145,6 @@ class Service(object):
                         self.strict,
                         self.wallet_name
                     )
-
-                    print("pc_instance")
-                    print(f"{pc_instance}")
-
                     if not hasattr(pc_instance, method):
                         print(f"--> Method {method} not found for provider {sp}")
                         continue
@@ -175,10 +169,10 @@ class Service(object):
                     self.errors[sp] = err_msg
                     print(f"--> Error from provider {sp}: {err_msg}")
 
-            if self.results:  # есть результат — выходим
+            if self.results: # if have result — exit
                 return list(self.results.values())[0]
 
-            # если пусто — ждём и пробуем снова
+            # if empty are waiting
             if attempt < retries:
                 print(f"--> No result, retrying {attempt}/{retries} in {retry_delay}s...")
                 time.sleep(retry_delay)
@@ -186,96 +180,6 @@ class Service(object):
         print(f"--> Failed to get result for {method} after {retries} retries")
         print(f"--> list(self.results.values())[0] {self.results.values()}")
         return list(self.results.values())[0]
-        return [] if method in ("getlisttransactions", "gettransactions") else None
-
-    # def _provider_execute(self, method, *arguments):
-    #     if method == "gettransactions":
-    #       print(f"--> Executing method '{method}'")
-    #     else:
-    #       print(f"--> Executing method '{method}' with arguments: {arguments}")
-    #     self._reset_results()
-    #     custom_providers = {
-    #         "bitcoind": {
-    #             "provider": "bitcoind",
-    #             "network": config['BTC_NETWORK'],
-    #             "client_class": "BitcoindClient",
-    #             "provider_coin_id": "",
-    #             "url": f'{config["FULLNODE_URL"]}',
-    #             "api_key": "",
-    #             "priority": 20,
-    #             "denominator": 100000000,
-    #             "network_overrides": None
-    #         }
-    #     }
-
-    #     provider_lst = list(custom_providers.keys())
-    #     start_time = datetime.now()
-
-    #     for sp in provider_lst:
-    #         # if self.resultcount >= self.max_providers:
-    #         #     break
-    #         try:
-    #             provider_conf = custom_providers[sp]
-    #             print("provider_conf")
-    #             print(f"{provider_conf}")
-    #             client = getattr(services, provider_conf['provider'])
-    #             providerclient = getattr(client, provider_conf['client_class'])
-
-    #             pc_instance = providerclient(
-    #                 self.network,
-    #                 provider_conf['url'],
-    #                 provider_conf['denominator'],
-    #                 provider_conf['api_key'],
-    #                 provider_conf['provider_coin_id'],
-    #                 provider_conf['network_overrides'],
-    #                 self.timeout,
-    #                 self._blockcount,
-    #                 self.strict,
-    #                 self.wallet_name
-    #             )
-                
-    #             print("pc_instance")
-    #             print(f"{pc_instance}")
-
-    #             if not hasattr(pc_instance, method):
-    #                 print(f"--> Method {method} not found for provider {sp}")
-    #                 continue
-
-    #             if provider_conf['api_key'] == 'api-key-needed':
-    #                 print(f"--> Skipping provider {sp} due to missing API key")
-    #                 continue
-
-    #             providermethod = getattr(pc_instance, method)
-    #             print(f"--> Calling method '{method}' on provider '{sp}'")
-    #             res = providermethod(*arguments)
-
-    #             if res is False:
-    #                 self.errors[sp] = 'Received empty response'
-    #                 print(f"--> Empty response from {sp} when calling {method}")
-    #                 continue
-
-    #             self.results[sp] = res
-    #             if method in ("getblock", "getlisttransactions"):
-    #                 print(f"--> Success from provider {sp}")
-    #             else:
-    #                 print(f"--> Success from provider {sp}: {res}")
-
-    #         except Exception as e:
-    #             err_msg = getattr(e, 'msg', str(e))
-    #             self.errors[sp] = err_msg
-    #             print(f"--> Error from provider {sp}: {err_msg}")
-    #             if len(self.errors) >= self.max_errors:
-    #                 if self.results:
-    #                     return list(self.results.values())[0]
-    #                 else:
-    #                     return False
-
-    #     self.execution_time = (datetime.now() - start_time).total_seconds() * 1000
-
-    #     # if not self.resultcount:
-    #     #     raise ServiceError("No successful response from any serviceprovider: %s" % list(custom_providers.keys()))
-
-    #     return list(self.results.values())[0]
 
     def getbalance(self, addresslist, addresses_per_request=5):
         if isinstance(addresslist, TYPE_TEXT):
