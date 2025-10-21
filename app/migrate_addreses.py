@@ -287,7 +287,7 @@ def migrate_addreses():
     bitcoind_proc.terminate()
     bitcoind_proc.wait()
     paths_to_remove = {
-        "files": ["db.log", "debug.log", "settings.json", "keys.txt", "peers.dat", "fee_estimates.dat", "mempool.dat", "banlist.json"],
+        "files": ["db.log", ".lock", "debug.log", "settings.json", "keys.txt", "peers.dat", "fee_estimates.dat", "mempool.dat", "banlist.json"],
         "dirs": ["blocks", "chainstate", "testnet3"]
     }
     for filename in paths_to_remove["files"]:

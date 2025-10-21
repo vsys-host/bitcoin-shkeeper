@@ -5,6 +5,7 @@ from app.wallet import BTCWallet
 from app.tasks import migrate_wallet_task
 from app.models import DbCacheVars
 from app.lib.services.services import Service
+from app.unlock_acc import get_account_password
 from decimal import Decimal
 import datetime
 import os
@@ -15,6 +16,10 @@ def handle_event(transaction):
 def log_loop():
     btc_wallet = BTCWallet()
     wallet = btc_wallet.wallet()
+    while wallet is None:
+        logger.warning("Wallet not loaded yet, waiting 10 seconds...")
+        time.sleep(10)
+        wallet = btc_wallet.wallet()
     default_check_interval = int(config.get("CHECK_NEW_BLOCK_EVERY_SECONDS", 60))
     srv = Service(config['BTC_NETWORK'])
     latest_height = btc_wallet.get_last_block_number()
@@ -65,18 +70,35 @@ def log_loop():
         time.sleep(check_interval)
 
 def events_listener():
-    try:
-        logger.info("log_loop started")
-        from app import create_app
-        app = create_app()
-        app.app_context().push()
-        btc_wallet = BTCWallet()
-        wallet = btc_wallet.wallet()
-        if os.path.isfile('/root/.bitcoin/shkeeper/wallet.dat') and not wallet.migrated:
-            migrate_wallet_task.delay()
-        log_loop()
-    except Exception as e:
-        logger.exception(f"Exception in main block scanner loop: {e}")
-        logger.warning("Waiting 60 seconds before retry.")
-        time.sleep(60)
-        events_listener()
+    from app import create_app
+    app = create_app()
+    app.app_context().push()
+
+    while True:
+        try:
+            while not get_account_password():
+                logger.warning("Encryption password not available yet, waiting 20 seconds...")
+                time.sleep(20)
+
+            btc_wallet = BTCWallet()
+            wallet = btc_wallet.wallet()
+
+            if os.path.isfile('/root/.bitcoin/shkeeper/wallet.dat') and not wallet.migrated:
+                logger.info("Wallet migration required, starting migrate_wallet_task...")
+                result = migrate_wallet_task.delay()
+
+                logger.info("Waiting for migrate_wallet_task to finish...")
+                try:
+                    result.get(timeout=300)
+                    logger.info("Migration completed successfully.")
+                except Exception as e:
+                    logger.exception(f"Migration failed or timed out: {e}")
+                    time.sleep(60)
+                    continue
+            log_loop()
+
+        except Exception as e:
+            logger.exception(f"Exception in main block scanner loop: {e}")
+            logger.warning("Waiting 60 seconds before retry.")
+            time.sleep(60)
+

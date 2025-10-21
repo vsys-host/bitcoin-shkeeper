@@ -13,6 +13,7 @@ from .config import config
 from .models import DbWallet, DbTransaction, db
 from app.lib.values import Value, decimal_value_to_satoshi
 from .logging import logger
+from app.unlock_acc import get_account_password
 
 WALLETS_DIRECTORY = "wallets"
 
@@ -101,8 +102,10 @@ class BTCWallet():
         return Wallet(wallet_name)
 
     def wallet(self):
-       wallet_name = self.wallet_name()
-       return  Wallet(wallet_name)
+        if not get_account_password():
+            return
+        wallet_name = self.wallet_name()
+        return  Wallet(wallet_name)
 
     def get_deposit_account_balance(self):
         amount = self.wallet().balance()
@@ -110,6 +113,8 @@ class BTCWallet():
         return amount_btc
 
     def scan(self):
+        if not get_account_password():
+            return
         w = self.wallet()
         if not w:
             self.generate_address()
@@ -121,6 +126,8 @@ class BTCWallet():
        return wallet
     
     def wallet_name(self):
+        if not get_account_password():
+            return
         dbw = self.db_wallet()
         if dbw is None:
             self.generate_address()
@@ -135,6 +142,7 @@ class BTCWallet():
             all_wallets[key.address] = {
                 'public_address': key.address,
                 'private': key.private.hex(),
+                'wif': key.wif.decode('utf-8'),
                 'public': key.public.hex()
             }
         return all_wallets
