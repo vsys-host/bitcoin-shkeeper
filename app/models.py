@@ -5,7 +5,45 @@ from app.config import config
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.dialects.mysql import VARBINARY
 from sqlalchemy.orm import sessionmaker, relationship, session
-from sqlalchemy import BLOB
+from sqlalchemy import BLOB, TypeDecorator, String
+from hashlib import sha256
+from app.lib.encoding import aes_decrypt, aes_encrypt, double_sha256
+from app.unlock_acc import get_account_password
+
+class EncryptedBinary(TypeDecorator):
+    cache_ok = True
+    impl = VARBINARY
+
+    @property
+    def key(self):
+        password = get_account_password()
+        if not password or not isinstance(password, str):
+            return None
+        return sha256(password.encode('utf-8')).digest()
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+
+        key = self.key
+        if not key:
+            raise RuntimeError("Encryption password not loaded — cannot save encrypted field")
+
+        if not isinstance(value, bytes):
+            value = value.encode('utf-8')
+
+        return aes_encrypt(value, key)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+
+        key = self.key
+        if not key:
+            print("No encryption key, returning raw bytes.")
+            return value
+
+        return aes_decrypt(value, key)
 
 class DbWallet(db.Model):
     __tablename__ = 'wallets'
@@ -49,8 +87,8 @@ class DbKey(db.Model):
     change = db.Column(db.Integer)
     address_index = db.Column(db.BigInteger)
     public = db.Column(db.VARBINARY(65), index=True)
-    private = db.Column(db.VARBINARY(48))
-    wif = db.Column(db.String(128), index=True)
+    private = db.Column(EncryptedBinary(48))
+    wif = db.Column(EncryptedBinary(128), index=True)
     compressed = db.Column(db.Boolean, default=True)
     key_type = db.Column(db.String(10), default='bip32')
     address = db.Column(db.String(100), index=True)

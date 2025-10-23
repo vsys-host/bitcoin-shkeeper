@@ -10,7 +10,7 @@ acc_password = False
 def get_account_password():
     global acc_password 
     if acc_password:
-        logger.warning("Get password from cache")
+        # logger.warning("Get password from cache")
         return acc_password
     else:
         logger.warning("Get password from shkeeper")
