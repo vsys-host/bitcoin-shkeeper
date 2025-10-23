@@ -4,6 +4,7 @@ import decimal
 import random
 import uuid
 import logging
+from app.btc_utils import BTCUtils
 from app.lib.wallets import Wallet
 from app.lib.services.services import Service
 # from app.lib.encoding import addr_bech32_to_pubkeyhash, addr_base58_to_pubkeyhash
@@ -256,7 +257,7 @@ class BTCWallet():
         return payout_results
 
     def is_valid_btc_address(self, address: str) -> bool:
-        return True
+        return BTCUtils.is_valid_btc_address(address)
 
     # def drain_account(self, destination):
     #     wallet = self.current_wallet()
