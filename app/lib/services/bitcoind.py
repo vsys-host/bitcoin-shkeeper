@@ -113,6 +113,7 @@ class BitcoindClient(BaseClient):
                 # if addr in sent_addresses:
                 #     txids.add((tx['txid'], txs_list['height']))
                 if addr == address:
+                    _logger.warning(f"ADDRESS gettransactions {address}")
                     txids.add((tx['txid'], txs_list['height']))
             for vin in tx.get('vin', []):
                 prevout = vin.get('prevout', {})
@@ -120,6 +121,7 @@ class BitcoindClient(BaseClient):
                 # if addr in sent_addresses:
                 #     txids.add((tx['txid'], txs_list['height']))
                 if addr == address:
+                    _logger.warning(f"ADDRESS gettransactions {address}")
                     txids.add((tx['txid'], txs_list['height']))
         # txids = list(set([(tx['txid'], tx.get('blockheight')) for tx in txs_list if tx['address'] == address]))
         for (txid, blockheight) in txids:

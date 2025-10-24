@@ -25,13 +25,13 @@ def gen_password(length=32):
 #SRC = "/root/.bitcoin/testnet3/wallets/shkeeper/wallet.dat"
 SRC = "/root/.bitcoin/shkeeper/wallet.dat"
 DST = "/app/wallet.dat"
-try:
-    shutil.copy(SRC, DST)
-    print(f"Copied {SRC} → {DST}")
-except FileNotFoundError:
-    print(f"{SRC} not found, skipping copy")
-except PermissionError:
-    print(f"Permission denied copying {SRC} → {DST}")
+# try:
+#     shutil.copy(SRC, DST)
+#     print(f"Copied {SRC} → {DST}")
+# except FileNotFoundError:
+#     print(f"{SRC} not found, skipping copy")
+# except PermissionError:
+#     print(f"Permission denied copying {SRC} → {DST}")
 
 DATADIR = "/app"
 WALLET = "wallet.dat"
@@ -183,6 +183,15 @@ def find_closest_block_by_timestamp(target_timestamp):
             return block
     return closest_block
 
+def generate_addresses(btc_wallet, current_index_path, quantity_generated_addresses, witness_type='segwit'):
+    for address_index in range(quantity_generated_addresses):
+        path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
+        change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
+        btc_wallet.keys_for_path(path=change_path, witness_type=witness_type)
+        keys = btc_wallet.keys_for_path(path=path, witness_type=witness_type)
+        addr = keys[0].address
+        yield path, addr
+
 def migrate_addreses():
     time.sleep(20)
     bitcoind_proc = subprocess.Popen(bitcoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -206,21 +215,23 @@ def migrate_addreses():
         # transactions = list_transactions()
         # save_sent_addresses(transactions)
         legacy_address = list_legacy_address()
-        quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
-
+        # quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
+        quantity_generated_adresses = 20000
         db_wallet = db.session.query(DbWallet).first()
         db_wallet.generated_address_count = quantity_generated_adresses
         db_wallet.migrated = True
         db.session.commit()
 
         current_index_path = btc_wallet.current_index_path()
-        for address_index in range(quantity_generated_adresses):
-            path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
-            change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
-            btc_wallet.keys_for_path(path=change_path, witness_type='segwit')
-            keys = btc_wallet.keys_for_path(path=path, witness_type='segwit') 
-            addr = keys[0].address
+        for path, addr in generate_addresses(btc_wallet, current_index_path, quantity_generated_addresses=20000):
             print(f"Path: {path} → Address: {addr}")
+        # for address_index in range(quantity_generated_adresses):
+        #     path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
+        #     change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
+        #     btc_wallet.keys_for_path(path=change_path, witness_type='segwit')
+        #     keys = btc_wallet.keys_for_path(path=path, witness_type='segwit') 
+        #     addr = keys[0].address
+        #     print(f"Path: {path} → Address: {addr}")
     else:
         bitcoind_proc.terminate()
         bitcoind_proc.wait()
@@ -249,7 +260,8 @@ def migrate_addreses():
         btc_wallet = Wallet.create('Wallet7', wif, witness_type='segwit', purpose='0')
         print(list_legacy_address())
         legacy_address = list_legacy_address()
-        legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
+        # legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
+        legacy_quantity_generated_adresses = 20000
         db_wallet = db.session.query(DbWallet).first()
         db_wallet.generated_address_count = legacy_quantity_generated_adresses
         db_wallet.migrated = True
@@ -278,7 +290,7 @@ def migrate_addreses():
     new_var = DbCacheVars(
         varname='last_scanned_block',
         network_name=btc_wallet.network.name,
-        value=str(closest['height'] - 20),
+        value=str(917515 - 20),
         type='int',
         expires=None
     )
