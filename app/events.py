@@ -23,12 +23,13 @@ def log_loop():
     default_check_interval = int(config.get("CHECK_NEW_BLOCK_EVERY_SECONDS", 60))
     srv = Service(config['BTC_NETWORK'])
     latest_height = btc_wallet.get_last_block_number()
-    value = 917515
-    # value = wallet.session.query(DbCacheVars.value).filter_by(
-    #     varname='last_scanned_block',
-    #     network_name=wallet.network.name
-    # ).scalar()
+    # value = 917515
+    value = wallet.session.query(DbCacheVars.value).filter_by(
+        varname='last_scanned_block',
+        network_name=wallet.network.name
+    ).scalar()
     logger.info(f"DbCacheVars value {value}")
+
     if not value:
         logger.info(f"No last_scanned_block found, initializing with {latest_height}")
         new_var = DbCacheVars(
@@ -55,11 +56,13 @@ def log_loop():
                 logger.info(f"block_hash atr height {height}")
                 logger.info(f"Processed block_hash {block_hash}")
                 wallet.scan(block=block_hash)
+
                 wallet.session.query(DbCacheVars).filter_by(
                     varname='last_scanned_block',
                     network_name=wallet.network.name
                 ).update({"value": str(height)})
                 wallet.session.commit()
+
             current_height = latest_height
             check_interval = 30
         else:
@@ -80,7 +83,7 @@ def events_listener():
             btc_wallet = BTCWallet()
             wallet = btc_wallet.wallet()
 
-            if os.path.isfile('wallet.dat') and not wallet.migrated:
+            if os.path.isfile('/root/.bitcoin/shkeeper/wallet.dat') and not wallet.migrated:
                 logger.info("Wallet migration required, starting migrate_wallet_task...")
                 result = migrate_wallet_task.delay()
 

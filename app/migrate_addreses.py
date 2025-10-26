@@ -22,16 +22,15 @@ def gen_password(length=32):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+[]{};:,.<>/?"
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
-#SRC = "/root/.bitcoin/testnet3/wallets/shkeeper/wallet.dat"
 SRC = "/root/.bitcoin/shkeeper/wallet.dat"
 DST = "/app/wallet.dat"
-# try:
-#     shutil.copy(SRC, DST)
-#     print(f"Copied {SRC} → {DST}")
-# except FileNotFoundError:
-#     print(f"{SRC} not found, skipping copy")
-# except PermissionError:
-#     print(f"Permission denied copying {SRC} → {DST}")
+try:
+    shutil.copy(SRC, DST)
+    print(f"Copied {SRC} → {DST}")
+except FileNotFoundError:
+    print(f"{SRC} not found, skipping copy")
+except PermissionError:
+    print(f"Permission denied copying {SRC} → {DST}")
 
 DATADIR = "/app"
 WALLET = "wallet.dat"
@@ -215,15 +214,15 @@ def migrate_addreses():
         # transactions = list_transactions()
         # save_sent_addresses(transactions)
         legacy_address = list_legacy_address()
-        # quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
-        quantity_generated_adresses = 20000
+        quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
+
         db_wallet = db.session.query(DbWallet).first()
         db_wallet.generated_address_count = quantity_generated_adresses
         db_wallet.migrated = True
         db.session.commit()
 
         current_index_path = btc_wallet.current_index_path()
-        for path, addr in generate_addresses(btc_wallet, current_index_path, quantity_generated_addresses=20000):
+        for path, addr in generate_addresses(btc_wallet, current_index_path, quantity_generated_addresses=quantity_generated_adresses):
             print(f"Path: {path} → Address: {addr}")
         # for address_index in range(quantity_generated_adresses):
         #     path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
@@ -260,8 +259,7 @@ def migrate_addreses():
         btc_wallet = Wallet.create('Wallet7', wif, witness_type='segwit', purpose='0')
         print(list_legacy_address())
         legacy_address = list_legacy_address()
-        # legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
-        legacy_quantity_generated_adresses = 20000
+        legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
         db_wallet = db.session.query(DbWallet).first()
         db_wallet.generated_address_count = legacy_quantity_generated_adresses
         db_wallet.migrated = True
@@ -290,7 +288,7 @@ def migrate_addreses():
     new_var = DbCacheVars(
         varname='last_scanned_block',
         network_name=btc_wallet.network.name,
-        value=str(917515 - 20),
+        value=str(closest['height'] - 20),
         type='int',
         expires=None
     )
@@ -299,7 +297,7 @@ def migrate_addreses():
     bitcoind_proc.terminate()
     bitcoind_proc.wait()
     paths_to_remove = {
-        "files": ["db.log", ".lock", "debug.log", "settings.json", "keys.txt", "peers.dat", "fee_estimates.dat", "mempool.dat", "banlist.json"],
+        "files": ["db.log", ".walletlock", ".lock", "debug.log", "settings.json", "keys.txt", "peers.dat", "fee_estimates.dat", "mempool.dat", "banlist.json"],
         "dirs": ["blocks", "chainstate", "testnet3"]
     }
     for filename in paths_to_remove["files"]:

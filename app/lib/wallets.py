@@ -16,10 +16,8 @@ from app.lib.values import Value, value_to_satoshi
 from app.lib.services.services import Service
 from app.lib.transactions import Input, Output, Transaction, get_unlocking_script_type, TransactionError
 from app.lib.main import *
-from sqlalchemy import func, or_, asc
-# from sqlalchemy import asc
+from sqlalchemy import func, or_, asc, text
 from sqlalchemy.exc import OperationalError
-# from sqlalchemy.orm import sessionmaker
 import time
 
 _logger = logging.getLogger(__name__)
@@ -48,12 +46,6 @@ def iter_key_batches(session, wallet_id, account_id=None, witness_type=None, net
 def notify_shkeeper(symbol: str, txid: str):
     from app.tasks import walletnotify_shkeeper
     walletnotify_shkeeper.delay(symbol, txid)
-
-
-YIELD_PER = 1000       # сколько id подгружать за раз из курсора
-BATCH_COMMIT = 500     # каждые N ключей делаем commit + expunge_all
-RETRY_DELAY = 2.0      # при ошибке lock wait — пауза
-MAX_RETRIES = 3
 
 class WalletError(Exception):
     def __init__(self, msg=''):
@@ -1125,7 +1117,6 @@ class Wallet(object):
 
         txs_list = srv.getlisttransactions(block)
 
-        # соберём адреса, участвующие в транзакциях
         addresses_in_txs = set()
         for tx in txs_list['tx']:
             for vout in tx.get('vout', []):
@@ -1138,7 +1129,6 @@ class Wallet(object):
                 if addr:
                     addresses_in_txs.add(addr)
 
-        # обновляем неподтверждённые транзакции
         self.transactions_update_confirmations()
         db_txs = self.session.query(DbTransaction).filter(
             DbTransaction.wallet_id == self.wallet_id,
@@ -1148,7 +1138,6 @@ class Wallet(object):
         for db_tx in db_txs:
             self.transactions_update_by_txids([db_tx.txid])
 
-        SessionLocal = self.session.__class__  # использовать тот же scoped_session
         BATCH_SIZE = 200
         MAX_RETRIES = 3
         RETRY_DELAY = 2
@@ -1197,61 +1186,6 @@ class Wallet(object):
 
         _logger.warning("✅ SCAN COMPLETED ✅")
 
-    # def scan(self, scan_gap_limit=1, account_id=None, change=None, rescan_used=False, network=None, keys_ignore=None, block=''):
-    #     network, account_id, _ = self._get_account_defaults(network, account_id)
-    #     if self.scheme != 'bip32' and scan_gap_limit < 2:
-    #         raise WalletError("The wallet scan() method is only available for BIP32 wallets")
-    #     if keys_ignore is None:
-    #         keys_ignore = []
-
-    #     srv = self._build_service()
-    #     txs_list = srv.getlisttransactions(block)
-    #     # # Rescan used addresses
-    #     # if rescan_used:
-    #     #     for key in self.keys_addresses(account_id=account_id, change=change, network=network, used=True):
-    #     #         self.scan_key(key.id, txs_list)
-    #     # Update already known transactions with known block height
-    #     self.transactions_update_confirmations()
-
-    #     # Check unconfirmed transactions
-    #     db_txs = self.session.query(DbTransaction). \
-    #         filter(DbTransaction.wallet_id == self.wallet_id,
-    #                DbTransaction.network_name == network, DbTransaction.confirmations == 0).all()
-    #     for db_tx in db_txs:
-    #         self.transactions_update_by_txids([db_tx.txid])
-
-    #     # Scan each key address, stop when no new transactions are found after set scan gap limit
-    #     # if change is None:
-    #     #     change_range = [0, 1]
-    #     # else:
-    #     #     change_range = [change]
-    #     counter = 0
-    #     # for chg in change_range:
-    #     while True:
-    #         if self.scheme == 'single':
-    #             keys_to_scan = [self.key(k.id) for k in self.keys_addresses()[counter:counter+scan_gap_limit]]
-    #             counter += scan_gap_limit
-    #         else:
-    #             keys_to_scan = []
-    #             for witness_type in self.witness_types(network=network):
-    #                 keys_to_scan += self.get_used_keys(account_id, witness_type, network,
-    #                                                 number_of_keys=scan_gap_limit, change=0)
-
-    #         n_highest_updated = 0
-    #         for key in keys_to_scan:
-    #             if key.key_id in keys_ignore:
-    #                 continue
-    #             keys_ignore.append(key.key_id)
-    #             n_high_new = 0
-    #             if self.scan_key(key, txs_list):
-    #                 if not key.address_index:
-    #                     key.address_index = 0
-    #                 n_high_new = key.address_index + 1
-    #             if n_high_new > n_highest_updated:
-    #                 n_highest_updated = n_high_new
-    #         if not n_highest_updated:
-    #             break
-
     def _get_key(self, account_id=None, witness_type=None, network=None, number_of_keys=1, change=0,
                  as_list=False):
         network, account_id, _ = self._get_account_defaults(network, account_id)
@@ -1292,37 +1226,6 @@ class Wallet(object):
         if self.scheme == 'single':
             raise WalletError("Single wallet has only one (master)key. Use get_key() or main_key() method")
         return self._get_key(account_id, witness_type, network, number_of_keys, change, as_list=True)
-
-    # def get_used_keys(self, account_id=None, witness_type=None, network=None, number_of_keys=1, change=0):
-    #     network, account_id, _ = self._get_account_defaults(network, account_id)
-    #     witness_type = witness_type if witness_type else self.witness_type
-    #     # generated_count = (
-    #     #     self.session.query(DbWallet.generated_address_count)
-    #     #     .filter_by(id=self.wallet_id)
-    #     #     .scalar()
-    #     # )
-    #     # if generated_count is None:
-    #     #     generated_count = 0
-    #     dbkey = (
-    #         self.session.query(DbKey.id)
-    #         .filter_by(
-    #             wallet_id=self.wallet_id,
-    #             account_id=account_id,
-    #             network_name=network,
-    #             witness_type=witness_type
-    #         )
-    #         .order_by(DbKey.id.asc())
-    #         .all()
-    #     )
-    #     # dbkey = (
-    #     #     self.session.query(DbKey.id)
-    #     #     .order_by(DbKey.id.asc())
-    #     #     .all()
-    #     # )
-    #     if self.scheme == 'single' and len(dbkey):
-    #         number_of_keys = len(dbkey) if number_of_keys > len(dbkey) else number_of_keys
-    #     key_list = [self.key(key_id[0]) for key_id in dbkey]
-    #     return key_list
 
     def path_expand(self, path, level_offset=None, account_id=None, address_index=None, change=0,
                     network=DEFAULT_NETWORK):
@@ -1628,67 +1531,75 @@ class Wallet(object):
 
     def balance(self, as_string=False):
         self._balance_update()
-        balance = self._balance
+        balance = self._balance_update()
         if as_string:
-            return str(balance)
-        return float(balance)
+            return Value.from_satoshi(balance).str_unit()
+        else:
+            return float(balance)
 
     def _balance_update(self, key_id=None, min_confirms=config['MIN_CONFIRMS']):
         qr = (
             self.session.query(
-                DbTransactionOutput,
-                func.sum(DbTransactionOutput.value)
+                DbTransactionOutput.key_id,
+                func.sum(DbTransactionOutput.value).label("balance")
             )
-            .join(DbTransaction)
+            .join(DbTransaction, DbTransaction.id == DbTransactionOutput.transaction_id)
             .filter(
+                DbTransaction.confirmations >= min_confirms,
                 DbTransactionOutput.spent.is_(False),
-                DbTransaction.wallet_id == self.wallet_id,
-                DbTransaction.confirmations >= min_confirms
-                )
+                DbTransactionOutput.key_id.isnot(None)
+            )
+            .group_by(DbTransactionOutput.key_id)
         )
+
         if key_id is not None:
             qr = qr.filter(DbTransactionOutput.key_id == key_id)
-        else:
-            qr = qr.filter(DbTransactionOutput.key_id.isnot(None))
-        utxos = (
-            qr.group_by(
-                DbTransactionOutput.key_id,
-                DbTransactionOutput.transaction_id,
-                DbTransactionOutput.output_n,
-            ).all()
-        )
-        key_values = [
-            {
-                'id': utxo[0].key_id,
-                'balance': utxo[1]
-            }
-            for utxo in utxos
-        ]
-        key_balance_list = []
-        for key_id, grp in groupby(sorted(key_values, key=itemgetter("id")), key=itemgetter("id")):
-            key_balance_list.append({
-                'id': key_id,
-                'balance': sum(item["balance"] for item in grp)
-            })
 
-        for key in self.keys(key_id=key_id):
-            if key.id not in [utxo[0].key_id for utxo in utxos]:
-                key_balance_list.append({
-                    'id': key.id,
-                    'balance': 0
-                })
+        balances = {row.key_id: int(row.balance) for row in qr}
 
-        self._balance = sum(item["balance"] for item in key_balance_list)
+        if not balances:
+            _logger.info("No UTXOs found, setting all balances to 0")
+            sql_zero = text("""
+                UPDATE `keys`
+                SET balance = 0
+                WHERE wallet_id = :wallet_id
+            """)
+            self.session.execute(sql_zero, {"wallet_id": self.wallet_id})
+            self.session.commit()
+            self._balance = 0
+            return 0
 
-        for kb in key_balance_list:
-            if kb['id'] in self._key_objects:
-                self._key_objects[kb['id']]._balance = kb['balance']
+        chunk_size = 1000
+        items = list(balances.items())
 
-        self.session.bulk_update_mappings(DbKey, key_balance_list)
-        self._commit()
-        _logger.info("Got balance for %d key(s)" % len(key_balance_list))
+        for i in range(0, len(items), chunk_size):
+            chunk = items[i:i + chunk_size]
+            values_sql = " UNION ALL ".join(f"SELECT {kid} AS id, {balance} AS balance" for kid, balance in chunk)
+            sql = text(f"""
+                UPDATE `keys` AS k
+                JOIN (
+                    {values_sql}
+                ) AS v ON k.id = v.id
+                SET k.balance = v.balance
+                WHERE k.wallet_id = :wallet_id
+            """)
+            self.session.execute(sql, {"wallet_id": self.wallet_id})
+
+        sql_zero_rest = text(f"""
+            UPDATE `keys`
+            SET balance = 0
+            WHERE wallet_id = :wallet_id
+            {"AND id NOT IN (" + ",".join(str(kid) for kid in balances.keys()) + ")" if balances else ""}
+        """)
+        self.session.execute(sql_zero_rest, {"wallet_id": self.wallet_id})
+        self.session.commit()
+        self._balance = sum(balances.values())
+        for kid, balance in balances.items():
+            if kid in self._key_objects:
+                self._key_objects[kid]._balance = balance
+
+        _logger.info("Got balance for %d key(s)" % len(balances))
         return self._balance
-
 
     def utxos(self, account_id=None, network=None, min_confirms=0, key_id=None):
         first_key_id = key_id
@@ -1737,7 +1648,7 @@ class Wallet(object):
         blockcount = srv.blockcount()
         self.session.query(DbTransaction).\
             filter(DbTransaction.wallet_id == self.wallet_id,
-                   DbTransaction.network_name == network, DbTransaction.block_height > 0).\
+                   DbTransaction.network_name == network, DbTransaction.block_height > 0, DbTransaction.confirmations < 500).\
                 update({DbTransaction.status: 'confirmed',
                         DbTransaction.confirmations: (blockcount - DbTransaction.block_height) + 1})
         self._commit()
@@ -1778,7 +1689,9 @@ class Wallet(object):
             depth = self.key_depth
 
         # Update number of confirmations and status for already known transactions
+        _logger.warning(f"transactions_update transactions_update_confirmations")
         self.transactions_update_confirmations()
+        _logger.warning(f"transactions_update transactions_update_confirmations finished")
 
         srv = Service(network=network, wallet_name=self.name, providers=self.providers, cache_uri=self.db_cache_uri,
                       strict=self.strict)
@@ -1790,10 +1703,10 @@ class Wallet(object):
         addresslist = self.addresslist(
             account_id=account_id, used=used, network=network, key_id=key_id, change=change, depth=depth)
         last_updated = datetime.now(timezone.utc)
-
+        _logger.warning(f"transactions_update addresslist {addresslist}")
         for address in addresslist:
             txs += srv.gettransactions(address, limit=limit, after_txid=self.transaction_last(address), txs_list=txs_list)
-            _logger.warning(f"srv gettransactions {txs}")
+            _logger.warning(f"txs transactions_update {txs}")
             if not srv.complete:
                 if txs and txs[-1].date and txs[-1].date < last_updated:
                     last_updated = txs[-1].date
@@ -1807,11 +1720,13 @@ class Wallet(object):
 
         # Update Transaction outputs to get list of unspent outputs (UTXO's)
         utxo_set = set()
+        _logger.warning(f"transactions_update from_transaction")
         for t in txs:
             wt = WalletTransaction.from_transaction(self, t)
             wt.store()
             utxos = [(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.inputs]
             utxo_set.update(utxos)
+        _logger.warning(f"transactions_update list utxo_set {utxo_set}")    
         for utxo in list(utxo_set):
             tos = self.session.query(DbTransactionOutput).join(DbTransaction).\
                 filter(DbTransaction.txid == bytes.fromhex(utxo[0]), DbTransactionOutput.output_n == utxo[1],
@@ -1821,7 +1736,9 @@ class Wallet(object):
 
         self.last_updated = last_updated
         self._commit()
+        _logger.warning(f"transactions_update balance update {key_id}")
         self._balance_update(key_id=key_id)
+        _logger.warning(f"transactions_update balance update finished")
 
         return len(txs)
 
