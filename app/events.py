@@ -23,7 +23,7 @@ def log_loop():
     default_check_interval = int(config.get("CHECK_NEW_BLOCK_EVERY_SECONDS", 60))
     srv = Service(config['BTC_NETWORK'])
     latest_height = btc_wallet.get_last_block_number()
-    # value = 4690700
+    # value = 917515
     value = wallet.session.query(DbCacheVars.value).filter_by(
         varname='last_scanned_block',
         network_name=wallet.network.name
@@ -87,18 +87,27 @@ def events_listener():
                 logger.info("Wallet migration required, starting migrate_wallet_task...")
                 result = migrate_wallet_task.delay()
 
-                logger.info("Waiting for migrate_wallet_task to finish...")
-                try:
-                    result.get(timeout=300)
-                    logger.info("Migration completed successfully.")
-                except Exception as e:
-                    logger.exception(f"Migration failed or timed out: {e}")
+                logger.info("Waiting for migrate_wallet_task to finish (this can take hours)...")
+
+                while True:
+                    if result.ready():
+                        if result.successful():
+                            logger.info("Migration completed successfully.")
+                        else:
+                            logger.error("Migration failed.")
+                        break
+
+                    logger.info("Migration still in progress... waiting 60s before next check")
+                    time.sleep(60)
+
+                wallet = btc_wallet.wallet()
+                if not wallet.migrated:
+                    logger.warning("Wallet still not marked as migrated, retrying later...")
                     time.sleep(60)
                     continue
             log_loop()
 
         except Exception as e:
             logger.exception(f"Exception in main block scanner loop: {e}")
-            logger.warning("Waiting 60 seconds before retry.")
-            time.sleep(60)
-
+            logger.warning("Waiting 66 seconds before retry.")
+            time.sleep(66)

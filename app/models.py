@@ -128,11 +128,11 @@ class DbTransaction(db.Model):
     locktime = db.Column(db.BigInteger, default=0)
     date = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     coinbase = db.Column(db.Boolean, default=False)
-    confirmations = db.Column(db.Integer, default=0)
+    confirmations = db.Column(db.Integer, default=0, index=True)
     block_height = db.Column(db.Integer, index=True)
     size = db.Column(db.Integer)
     fee = db.Column(db.BigInteger)
-    status = db.Column(db.String(20), default='new')
+    status = db.Column(db.String(20), default='new', index=True)
     is_complete = db.Column(db.Boolean, default=True)
     input_total = db.Column(db.BigInteger, default=0)
     output_total = db.Column(db.BigInteger, default=0)
@@ -147,6 +147,7 @@ class DbTransaction(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint('wallet_id', 'txid', name='constraint_wallet_transaction_hash_unique'),
+        db.Index('idx_tx_wallet_confirm', 'confirmations'),
         db.CheckConstraint(status.in_(['new', 'unconfirmed', 'confirmed']), name='constraint_status_allowed'),
         db.CheckConstraint(witness_type.in_(['legacy', 'segwit']), name='transaction_constraint_allowed_types'),
     )
@@ -157,21 +158,22 @@ class DbTransactionInput(db.Model):
     transaction_id = db.Column(db.Integer, db.ForeignKey('transactions.id'), primary_key=True)
     index_n = db.Column(db.Integer, primary_key=True)
     key_id = db.Column(db.Integer, db.ForeignKey('keys.id'), index=True)
-    address = db.Column(db.String(255))
+    address = db.Column(db.String(255), index=True)
     witnesses = db.Column(db.BLOB)
     witness_type = db.Column(db.String(20), default='segwit')
-    prev_txid = db.Column(db.VARBINARY(33))
+    prev_txid = db.Column(db.VARBINARY(33), index=True)
     output_n = db.Column(db.BigInteger)
     script = db.Column(db.BLOB)
     script_type = db.Column(db.String(20), default='sig_pubkey')
     sequence = db.Column(db.BigInteger)
     value = db.Column(db.BigInteger, default=0)
-    double_spend = db.Column(db.Boolean, default=False)
+    double_spend = db.Column(db.Boolean, default=False, index=True)
 
     __table_args__ = (
+        db.UniqueConstraint('transaction_id', 'index_n', name='constraint_transaction_input_unique'),
+        db.Index('idx_input_prevtx_output', 'prev_txid', 'output_n'),
         db.CheckConstraint(witness_type.in_(['legacy', 'segwit', 'p2sh-segwit', 'taproot']),
                            name='transactioninput_constraint_allowed_types'),
-        db.UniqueConstraint('transaction_id', 'index_n', name='constraint_transaction_input_unique'),
     )
 
 class DbTransactionOutput(db.Model):
@@ -180,17 +182,18 @@ class DbTransactionOutput(db.Model):
     transaction_id = db.Column(db.Integer, db.ForeignKey('transactions.id'), primary_key=True)
     output_n = db.Column(db.BigInteger, primary_key=True)
     key_id = db.Column(db.Integer, db.ForeignKey('keys.id'), index=True)
-    address = db.Column(db.String(255))
+    address = db.Column(db.String(255), index=True)
     script = db.Column(db.BLOB)
     script_type = db.Column(db.String(20), default='p2pkh')
     value = db.Column(db.BigInteger, default=0)
-    spent = db.Column(db.Boolean, default=False)
-    spending_txid = db.Column(db.VARBINARY(33))
+    spent = db.Column(db.Boolean, default=False, index=True)
+    spending_txid = db.Column(db.VARBINARY(33), index=True)
     spending_index_n = db.Column(db.Integer)
     is_change = db.Column(db.Boolean, default=False)
 
     __table_args__ = (
         db.UniqueConstraint('transaction_id', 'output_n', name='constraint_transaction_output_unique'),
+        db.Index('idx_output_key_spent', 'key_id', 'spent'),
     )
 
 class WitnessTypeTransactions(enum.Enum):

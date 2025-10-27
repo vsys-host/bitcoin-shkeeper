@@ -22,7 +22,6 @@ def gen_password(length=32):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+[]{};:,.<>/?"
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
-#SRC = "/root/.bitcoin/testnet3/wallets/shkeeper/wallet.dat"
 SRC = "/root/.bitcoin/shkeeper/wallet.dat"
 DST = "/app/wallet.dat"
 try:
@@ -183,6 +182,15 @@ def find_closest_block_by_timestamp(target_timestamp):
             return block
     return closest_block
 
+def generate_addresses(btc_wallet, current_index_path, quantity_generated_addresses, witness_type='segwit'):
+    for address_index in range(quantity_generated_addresses):
+        path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
+        change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
+        btc_wallet.keys_for_path(path=change_path, witness_type=witness_type)
+        keys = btc_wallet.keys_for_path(path=path, witness_type=witness_type)
+        addr = keys[0].address
+        yield path, addr
+
 def migrate_addreses():
     time.sleep(20)
     bitcoind_proc = subprocess.Popen(bitcoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -214,13 +222,15 @@ def migrate_addreses():
         db.session.commit()
 
         current_index_path = btc_wallet.current_index_path()
-        for address_index in range(quantity_generated_adresses):
-            path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
-            change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
-            btc_wallet.keys_for_path(path=change_path, witness_type='segwit')
-            keys = btc_wallet.keys_for_path(path=path, witness_type='segwit') 
-            addr = keys[0].address
+        for path, addr in generate_addresses(btc_wallet, current_index_path, quantity_generated_addresses=quantity_generated_adresses):
             print(f"Path: {path} → Address: {addr}")
+        # for address_index in range(quantity_generated_adresses):
+        #     path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
+        #     change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
+        #     btc_wallet.keys_for_path(path=change_path, witness_type='segwit')
+        #     keys = btc_wallet.keys_for_path(path=path, witness_type='segwit') 
+        #     addr = keys[0].address
+        #     print(f"Path: {path} → Address: {addr}")
     else:
         bitcoind_proc.terminate()
         bitcoind_proc.wait()
@@ -287,7 +297,7 @@ def migrate_addreses():
     bitcoind_proc.terminate()
     bitcoind_proc.wait()
     paths_to_remove = {
-        "files": ["db.log", ".lock", "debug.log", "settings.json", "keys.txt", "peers.dat", "fee_estimates.dat", "mempool.dat", "banlist.json"],
+        "files": ["db.log", ".walletlock", ".lock", "debug.log", "settings.json", "keys.txt", "peers.dat", "fee_estimates.dat", "mempool.dat", "banlist.json"],
         "dirs": ["blocks", "chainstate", "testnet3"]
     }
     for filename in paths_to_remove["files"]:
