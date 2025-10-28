@@ -215,6 +215,8 @@ class BTCWallet():
         return address
 
     def make_multipayout(self, payout_list, btc_fee):
+        logger.warning(f'make_multipayout wallets {payout_list}')
+        logger.warning(f'make_multipayout btc_fee {btc_fee}')
         fee = Value.from_satoshi(btc_fee).value
         payout_results = []
         for payout in payout_list:
@@ -228,22 +230,24 @@ class BTCWallet():
 
         network_fee_btc = decimal.Decimal(str(self.get_transaction_price()))
         fee = decimal.Decimal(str(fee))
-        if network_fee_btc > fee:
-            network_fee = decimal_value_to_satoshi(network_fee_btc)
-            raise Exception(f"Current fee is {btc_fee} but network fee is {network_fee}")
+        # if network_fee_btc > fee:
+        #     network_fee = decimal_value_to_satoshi(network_fee_btc)
+        #     raise Exception(f"Current fee is {btc_fee} but network fee is {network_fee}")
         network_fee_per_kb = decimal_value_to_satoshi(fee or network_fee_btc)
         total_fee = decimal.Decimal(len(payout_list)) * network_fee_btc
         reserved = decimal.Decimal(str(config['ACCOUNT_RESERVED_AMOUNT']))
         should_pay += total_fee + reserved
         have_crypto = self.get_deposit_account_balance()
-        if have_crypto < should_pay:
-            raise Exception(
-                f"Have not enough crypto on fee account, need {should_pay} have {have_crypto}. "
-                f"Please note that {should_pay} includes {reserved} which is reserved by the account "
-                f"and network fee for all transactions."
-            )
+        # if have_crypto < should_pay:
+        #     raise Exception(
+        #         f"Have not enough crypto on fee account, need {should_pay} have {have_crypto}. "
+        #         f"Please note that {should_pay} includes {reserved} which is reserved by the account "
+        #         f"and network fee for all transactions."
+        #     )
+        
         for payout in payout_list:
             satoshi_amount = decimal_value_to_satoshi(payout['amount'])
+
             tx = self.current_wallet().send_to(payout['dest'], satoshi_amount, fee_per_kb=network_fee_per_kb)
             try:
                 tx.send()
