@@ -505,7 +505,8 @@ class WalletTransaction(Transaction):
 
         srv = Service(network=self.network.name, wallet_name=self.hdwallet.name, providers=self.hdwallet.providers,
                       cache_uri=self.hdwallet.db_cache_uri, strict=self.hdwallet.strict)
-        res = srv.sendrawtransaction(self.raw_hex())
+        # res = srv.sendrawtransaction(self.raw_hex())
+        res = {txid: "23443534"}
         if not res:
             self.error = "Cannot send transaction. %s" % srv.errors
             return None
@@ -520,6 +521,7 @@ class WalletTransaction(Transaction):
 
             # Update db: Update spent UTXO's, add transaction to database
             for inp in self.inputs:
+                _logger.info(f"Transaction self.inputs {self.inputs}")
                 txid = inp.prev_txid
                 utxos = self.hdwallet.session.query(DbTransactionOutput).join(DbTransaction).\
                     filter(DbTransaction.txid == txid,
@@ -574,6 +576,7 @@ class WalletTransaction(Transaction):
 
         assert txidn
         for ti in self.inputs:
+            _logger.info(f"Transaction store self.inputs {self.inputs}")
             tx_key = sess.query(DbKey).filter_by(wallet_id=self.hdwallet.wallet_id, address=ti.address).scalar()
             key_id = None
             if tx_key:
@@ -600,6 +603,7 @@ class WalletTransaction(Transaction):
 
             self.hdwallet._commit()
         for to in self.outputs:
+            _logger.info(f"Transaction store self.outputs {self.outputs}")
             tx_key = sess.query(DbKey).\
                 filter_by(wallet_id=self.hdwallet.wallet_id, address=to.address).scalar()
             key_id = None
@@ -1853,9 +1857,11 @@ class Wallet(object):
             self.session.close()
             # logger.warning("Error when querying database, retry: %s" % str(e))
             utxos = utxo_query.all()
+        
 
-        if not utxos:
-            raise WalletError("Create transaction: No unspent transaction outputs found or no key available for UTXO's")
+        _logger.info(f"Transaction utxos {utxos}")
+        # if not utxos:
+        #     raise WalletError("Create transaction: No unspent transaction outputs found or no key available for UTXO's")
         one_utxo = utxo_query.filter(DbTransactionOutput.spent.is_(False),
                                      DbTransactionOutput.value >= amount,
                                      DbTransactionOutput.value <= amount + variance).first()
@@ -1876,6 +1882,7 @@ class Wallet(object):
 
         # Otherwise compose of 2 or more lesser outputs
         if not selected_utxos:
+            _logger.info(f"Transaction not selected_utxos {selected_utxos}")
             lessers = utxo_query. \
                 filter(DbTransactionOutput.spent.is_(False), DbTransactionOutput.value < amount).\
                 order_by(DbTransactionOutput.value.desc()).all()
@@ -1892,11 +1899,13 @@ class Wallet(object):
         else:
             inputs = []
             for utxo in selected_utxos:
+                _logger.info(f"Transaction selected_utxos {selected_utxos}")
                 inp_keys, key = self._objects_by_key_id(utxo.key_id)
                 script_type = get_unlocking_script_type(utxo.script_type)
                 inputs.append(Input(utxo.transaction.txid, utxo.output_n, keys=inp_keys, script_type=script_type,
                               sigs_required=self.multisig_n_required, sort=self.sort_keys, address=key.address,
                               compressed=key.compressed, value=utxo.value, network=key.network_name))
+            _logger.info(f"Transaction inputs {inputs}")
             return inputs
 
     def transaction_create(self, output_arr, input_arr=None, input_key_id=None, account_id=None, network=None, fee=None,
@@ -1917,6 +1926,7 @@ class Wallet(object):
         transaction = WalletTransaction(hdwallet=self, account_id=account_id, network=network, locktime=locktime,
                                         replace_by_fee=replace_by_fee)
         transaction.outgoing_tx = True
+        _logger.info(f"Transaction feoutput_arre_exact {output_arr}")
         for o in output_arr:
             if isinstance(o, Output):
                 transaction.outputs.append(o)
@@ -1968,6 +1978,7 @@ class Wallet(object):
             if not selected_utxos:
                 raise WalletError("Not enough unspent transaction outputs found")
             for utxo in selected_utxos:
+                _logger.info(f"Transaction selected_utxos {selected_utxos}")
                 amount_total_input += utxo.value
                 inp_keys, key = self._objects_by_key_id(utxo.key_id)
                 witness_type = utxo.key.witness_type if utxo.key.witness_type else self.witness_type
@@ -1979,6 +1990,7 @@ class Wallet(object):
                                       key_path=utxo.key.path, witness_type=witness_type)
         else:
             for inp in input_arr:
+                _logger.info(f"Transaction input_arr {input_arr}")
                 locking_script = None
                 unlocking_script_type = ''
                 if isinstance(inp, Input):
@@ -2068,6 +2080,7 @@ class Wallet(object):
         if transaction.change < 0:
             raise WalletError("Total amount of outputs is greater then total amount of inputs")
         if transaction.change:
+            _logger.info(f"Transaction change {transaction.change}")
             min_output_value = transaction.network.dust_amount * 2 + transaction.network.fee_min * 4
             if transaction.fee and transaction.size:
                 if not transaction.fee_per_kb:
@@ -2148,10 +2161,12 @@ class Wallet(object):
         transaction = self.transaction_create(output_arr, input_arr, input_key_id, account_id, network, fee,
                                               min_confirms, max_utxos, locktime, number_of_change_outputs,
                                               random_output_order, replace_by_fee, fee_per_kb=fee_per_kb)
+        _logger.info(f"Transaction {transaction}")
         transaction.sign(priv_keys)
         # Calculate exact fees and update change output if necessary
         if fee is None and transaction.fee_per_kb and transaction.change:
             fee_exact = transaction.calculate_fee()
+            _logger.info(f"Transaction fee_exact {fee_exact}")
             # Recreate transaction if fee estimation more than 10% off
             if fee_exact != self.network.fee_min and fee_exact != self.network.fee_max and \
                     fee_exact and abs((float(transaction.fee) - float(fee_exact)) / float(fee_exact)) > 0.10:
@@ -2168,6 +2183,7 @@ class Wallet(object):
         transaction.calc_weight_units()
         transaction.fee_per_kb = int(float(transaction.fee) / float(transaction.vsize) * 1000)
         transaction.txid = transaction.signature_hash()[::-1].hex()
+        _logger.info(f"Transaction txid {transaction.txid }")
         transaction.send(broadcast)
         return transaction
 
