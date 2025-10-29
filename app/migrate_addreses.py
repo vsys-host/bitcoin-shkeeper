@@ -63,7 +63,7 @@ bitcoind_cmd = [
     "-printtoconsole",
     "-daemon=0",
     "-persistmempool=0",
-    "-rebroadcast=0",
+    # "-rebroadcast=0",
     "-walletbroadcast=0",
     "-debug=1",
     "-logips=1",
