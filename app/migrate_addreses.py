@@ -61,7 +61,12 @@ bitcoind_cmd = [
     "-disablewallet=0",
     "-deprecatedrpc=addresses",
     "-printtoconsole",
-    "-daemon=0"
+    "-daemon=0",
+    "-persistmempool=0",
+    "-debug=1",
+    "-logips=1",
+    "-loglevelalways=1",
+
 ]
 
 def handle_event(transaction):        
