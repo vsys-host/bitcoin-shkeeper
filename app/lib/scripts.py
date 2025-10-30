@@ -259,11 +259,8 @@ class Script(object):
                     data = script.read(data_length)
                     if len(data) != data_length:
                         msg = "Malformed script, not enough data found"
-                        if strict:
-                            raise ScriptError(msg)
-                        else:
-                            chb = b''
-                            _logger.warning(msg)
+                        chb = b''
+                        _logger.warning(msg)
                     continue
 
                 commands.append(ch)
