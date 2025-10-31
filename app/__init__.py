@@ -1,7 +1,19 @@
+import time
 from flask import Flask
 from . import events
+from sqlalchemy import inspect
+from sqlalchemy.exc import OperationalError
 from app.config import config
 from app.db_import import db
+
+def wait_for_db(engine, timeout=30):
+    for _ in range(timeout):
+        try:
+            engine.connect().close()
+            return
+        except OperationalError:
+            time.sleep(1)
+    raise RuntimeError("DB not ready after waiting")
 
 def create_app():
     app = Flask(__name__)
@@ -19,8 +31,12 @@ def create_app():
 
     db.init_app(app)
     with app.app_context():
-        # Create tables according to models
-        # from .models import Settings
-        db.create_all()
-
+        wait_for_db(db.engine)
+        try:
+            db.create_all()
+        except OperationalError as e:
+            if "already exists" in str(e):
+                pass
+            else:
+                raise
     return app
