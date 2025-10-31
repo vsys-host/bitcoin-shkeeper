@@ -23,7 +23,10 @@ def gen_password(length=32):
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 SRC = "/root/.bitcoin/shkeeper/wallet.dat"
-DST = "/app/wallet.dat"
+TMP_DATADIR = "/app/tmp_bitcoind"
+os.makedirs(TMP_DATADIR, exist_ok=True)
+DST = os.path.join(TMP_DATADIR, "wallet.dat")
+
 try:
     shutil.copy(SRC, DST)
     print(f"Copied {SRC} → {DST}")
@@ -32,22 +35,18 @@ except FileNotFoundError:
 except PermissionError:
     print(f"Permission denied copying {SRC} → {DST}")
 
-DATADIR = "/app"
 WALLET = "wallet.dat"
 RPC_USER = gen_password(32)
 RPC_PASSWORD = gen_password(32)
 RPC_PORT = "18332"
 DUMP_FILE = "keys.txt"
 
-os.makedirs(DATADIR, exist_ok=True)
-# wallet_path = os.path.join(DATADIR, WALLET)
-
 rpc_bind = "0.0.0.0"
 # rpc_bind = socket.gethostbyname(socket.gethostname()) or "127.0.0.1"
 
 bitcoind_cmd = [
     "bitcoind",
-    f"-datadir={DATADIR}",
+    f"-datadir={TMP_DATADIR}",
     "-server",
     # f"-{config['BTC_NETWORK']}",
     # "-rpcallowip=127.0.0.1",
@@ -56,7 +55,7 @@ bitcoind_cmd = [
     f"-rpcport={RPC_PORT}",
     f"-rpcuser={RPC_USER}",
     f"-rpcpassword={RPC_PASSWORD}",
-    f"-walletdir={DATADIR}",
+    f"-walletdir={TMP_DATADIR}",
     "-connect=0",
     "-disablewallet=0",
     "-deprecatedrpc=addresses",
@@ -79,10 +78,12 @@ def get_rpc_credentials():
 def build_rpc_request(method, *params):
     return {"jsonrpc": "1.0", "id": "shkeeper", "method": method, "params": params}
 
-def get_legacy_main_key():
-    dump_file = Path("keys.txt")
+def get_legacy_main_key(tmp_datadir=TMP_DATADIR, dump_file_name="keys.txt"):
+    dump_file = Path(tmp_datadir) / dump_file_name
     main_key = None
     privkeys = {}
+    if not dump_file.exists():
+        raise FileNotFoundError(f"{dump_file} does not exist")
     with dump_file.open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -241,13 +242,13 @@ def migrate_addreses():
         print("legacy")
         dump_cmd = [
             "bitcoin-cli",
-            f"-datadir={DATADIR}",
+            f"-datadir={TMP_DATADIR}",
             f"-rpcuser={RPC_USER}",
             f"-rpcpassword={RPC_PASSWORD}",
             f"-rpcport={RPC_PORT}",
             f"-rpcwallet={WALLET}",
             "dumpwallet",
-            os.path.join(DATADIR, DUMP_FILE)
+            os.path.join(TMP_DATADIR, DUMP_FILE)
         ]
         subprocess.run(dump_cmd, check=True)
         print(f"Wallet dumped to {DUMP_FILE}")
@@ -296,16 +297,6 @@ def migrate_addreses():
     btc_wallet.session.commit()
     bitcoind_proc.terminate()
     bitcoind_proc.wait()
-    paths_to_remove = {
-        "files": ["db.log", ".walletlock", ".lock", "debug.log", "settings.json", "keys.txt", "peers.dat", "fee_estimates.dat", "mempool.dat", "banlist.json"],
-        "dirs": ["blocks", "chainstate", "testnet3"]
-    }
-    for filename in paths_to_remove["files"]:
-        path = os.path.join(DATADIR, filename)
-        if os.path.exists(path):
-            os.remove(path)
-
-    for dirname in paths_to_remove["dirs"]:
-        path = os.path.join(DATADIR, dirname)
-        if os.path.exists(path):
-            shutil.rmtree(path, ignore_errors=True)
+    if os.path.exists(TMP_DATADIR):
+      shutil.rmtree(TMP_DATADIR, ignore_errors=True)
+      print(f"Removed temporary directory {TMP_DATADIR}")
