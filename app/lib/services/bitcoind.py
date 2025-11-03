@@ -3,9 +3,9 @@ from app.lib.main import *
 from app.lib.services.authproxy import AuthServiceProxy
 from app.lib.services.baseclient import BaseClient, ClientError
 from app.lib.transactions import Transaction
-from app.models import db
 from app.lib.networks import Network
 from app.config import config
+from app.models import db, DbCacheVars
 
 PROVIDERNAME = 'bitcoind'
 
@@ -200,8 +200,14 @@ class BitcoindClient(BaseClient):
     def synced_status(self):
         bcinfo = self.proxy.getblockchaininfo()
         not_synced_block = bcinfo['headers'] - bcinfo['blocks']
-        return not_synced_block
-    
+        last_scanned_block_obj = db.session.query(DbCacheVars).filter_by(varname='last_scanned_block').scalar()
+        if last_scanned_block_obj is None:
+            last_scanned_block = 0
+        else:
+            last_scanned_block = int(last_scanned_block_obj.value)
+        current_scanned_blocks = bcinfo['headers'] - last_scanned_block
+        return max(not_synced_block, current_scanned_blocks)
+
     def mempool(self, txid=''):
         txids = self.proxy.getrawmempool()
         if not txid:
