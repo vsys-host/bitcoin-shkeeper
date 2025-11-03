@@ -3,7 +3,7 @@ from decimal import Decimal
 
 config = {
     # 'FULLNODE_URL': os.environ.get('FULLNODE_URL', 'http://bitcoinuser:bitcoinpass@195.66.213.33:18332/'),
-    'FULLNODE_URL': os.environ.get('FULLNODE_URL', 'http://rpcuser:e8BKNvCnNy2VNze8BNv3nNyVNz@213.111.146.191:18332/'),
+    'FULLNODE_URL': os.environ.get('FULLNODE_URL', 'http://shkeeper:shkeeper@fullnode.bitcoin.shkeeper.io:8332'),
     'FULLNODE_TIMEOUT': os.environ.get('FULLNODE_TIMEOUT', '60'),
     'CHECK_NEW_BLOCK_EVERY_SECONDS': os.environ.get('CHECK_NEW_BLOCK_EVERY_SECONDS',60),
     'EVENTS_MAX_THREADS_NUMBER': int(os.environ.get('EVENTS_MAX_THREADS_NUMBER', 5)),
