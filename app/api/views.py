@@ -6,9 +6,6 @@ from app import create_app
 from app.lib.values import Value
 from app.wallet import BTCWallet
 
-app = create_app()
-app.app_context().push()
-
 @api.post("/generate-address")
 def generate_new_address():   
     w = BTCWallet() 
