@@ -23,8 +23,9 @@ import time
 _logger = logging.getLogger(__name__)
 
 
-def iter_key_batches(session, wallet_id, account_id=None, witness_type=None, network=None, addresses=None, batch_size=200):
+def get_all_key_ids(session, wallet_id, account_id=None, witness_type=None, network=None, addresses=None):
     q = session.query(DbKey.id).filter(DbKey.wallet_id == wallet_id)
+
     if account_id is not None:
         q = q.filter(DbKey.account_id == account_id)
     if witness_type is not None:
@@ -33,15 +34,9 @@ def iter_key_batches(session, wallet_id, account_id=None, witness_type=None, net
         q = q.filter(DbKey.network_name == network)
     if addresses:
         q = q.filter(DbKey.address.in_(addresses))
-    q = q.order_by(asc(DbKey.id)).yield_per(batch_size).execution_options(stream_results=True)
-    batch = []
-    for (kid,) in q:
-        batch.append(kid)
-        if len(batch) >= batch_size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
+
+    q = q.order_by(asc(DbKey.id))
+    return [kid for (kid,) in q.all()]
 
 def notify_shkeeper(symbol: str, txid: str):
     from app.tasks import walletnotify_shkeeper
@@ -1151,51 +1146,49 @@ class Wallet(object):
         for db_tx in db_txs:
             self.transactions_update_by_txids([db_tx.txid])
         _logger.warning(f"finished transactions_update_by_txids")  
-        BATCH_SIZE = 200
         MAX_RETRIES = 3
         RETRY_DELAY = 2
 
         while True:
             n_highest_updated = 0
             something_new = False
-
-            for batch_ids in iter_key_batches(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=addresses_in_txs, batch_size=BATCH_SIZE):
-                s = self.session()
-                try:
-                    _logger.warning(f"start receive keys")  
-                    keys = s.query(DbKey).filter(DbKey.id.in_(batch_ids)).all()
-                    _logger.warning(f"finished receive keys")  
-                    for key in keys:
-                        attempt = 0
-                        while True:
-                            try:
-                                _logger.warning(f"start scan_key")  
-                                got_new = self.scan_key(key, txs_list)
-                                _logger.warning(f"finished scan_key")  
+            keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=addresses_in_txs)
+            s = self.session()
+            try:
+                _logger.warning(f"start receive keys")
+                keys = s.query(DbKey).filter(DbKey.id.in_(keys_ids)).all()
+                _logger.warning(f"finished receive keys")
+                for key in keys:
+                    attempt = 0
+                    while True:
+                        try:
+                            _logger.warning(f"start scan_key")
+                            got_new = self.scan_key(key, txs_list)
+                            _logger.warning(f"finished scan_key")
+                            break
+                        except OperationalError as e:
+                            attempt += 1
+                            s.rollback()
+                            if attempt >= MAX_RETRIES:
+                                _logger.exception("scan_key failed after retries for key %s: %s", key.id, e)
+                                got_new = False
                                 break
-                            except OperationalError as e:
-                                attempt += 1
-                                s.rollback()
-                                if attempt >= MAX_RETRIES:
-                                    _logger.exception("scan_key failed after retries for key %s: %s", key.id, e)
-                                    got_new = False
-                                    break
-                                _logger.warning("Lock error in scan_key, retry %d/%d, sleeping %ss", attempt, MAX_RETRIES, RETRY_DELAY)
-                                time.sleep(RETRY_DELAY)
+                            _logger.warning("Lock error in scan_key, retry %d/%d, sleeping %ss", attempt, MAX_RETRIES, RETRY_DELAY)
+                            time.sleep(RETRY_DELAY)
 
-                        if got_new:
-                            something_new = True
-                            if not key.address_index:
-                                key.address_index = 0
-                            n_highest_updated = max(n_highest_updated, key.address_index + 1)
+                    if got_new:
+                        something_new = True
+                        if not key.address_index:
+                            key.address_index = 0
+                        n_highest_updated = max(n_highest_updated, key.address_index + 1)
 
-                    s.commit()
-                except Exception:
-                    s.rollback()
-                    raise
-                finally:
-                    s.expunge_all()
-                    s.close()
+                s.commit()
+            except Exception:
+                s.rollback()
+                raise
+            finally:
+                s.expunge_all()
+                s.close()
 
             if not something_new or not n_highest_updated:
                 break
@@ -1737,7 +1730,8 @@ class Wallet(object):
         # Update Transaction outputs to get list of unspent outputs (UTXO's)
         utxo_set = set()
         _logger.warning(f"transactions_update from_transaction {txs}")
-        for t in txs:
+        unique_txs = list({t.txid: t for t in txs}.values())
+        for t in unique_txs:
             _logger.warning(f"start transactions_update from_transaction 1 txs {txs}")
             wt = WalletTransaction.from_transaction(self, t)
             _logger.warning(f"finished transactions_update from_transaction")

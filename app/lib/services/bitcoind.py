@@ -101,7 +101,9 @@ class BitcoindClient(BaseClient):
         return t
 
     def gettransaction(self, txid):
+        _logger.warning("request getrawtransaction")
         tx_raw = self.proxy.getrawtransaction(txid, 1)
+        _logger.warning("request getrawtransaction")
         return self._parse_transaction(tx_raw)
 
     def gettransactions(self, address, after_txid='', txs_list=[]):
@@ -123,7 +125,9 @@ class BitcoindClient(BaseClient):
                     txids.add((tx['txid'], txs_list['height']))
         # txids = list(set([(tx['txid'], tx.get('blockheight')) for tx in txs_list if tx['address'] == address]))
         for (txid, blockheight) in txids:
+            _logger.warning("request getrawtransaction")
             tx_raw = self.proxy.getrawtransaction(txid, 1)
+            _logger.warning("request getrawtransaction")
             t = self._parse_transaction(tx_raw, blockheight)
             txs.append(t)
             if txid == after_txid:
