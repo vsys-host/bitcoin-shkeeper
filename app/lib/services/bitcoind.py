@@ -3,9 +3,9 @@ from app.lib.main import *
 from app.lib.services.authproxy import AuthServiceProxy
 from app.lib.services.baseclient import BaseClient, ClientError
 from app.lib.transactions import Transaction
-from app.models import db
 from app.lib.networks import Network
 from app.config import config
+from app.models import db, DbCacheVars
 
 PROVIDERNAME = 'bitcoind'
 
@@ -101,7 +101,9 @@ class BitcoindClient(BaseClient):
         return t
 
     def gettransaction(self, txid):
+        _logger.warning("request getrawtransaction")
         tx_raw = self.proxy.getrawtransaction(txid, 1)
+        _logger.warning("request getrawtransaction")
         return self._parse_transaction(tx_raw)
 
     def gettransactions(self, address, after_txid='', txs_list=[]):
@@ -123,7 +125,9 @@ class BitcoindClient(BaseClient):
                     txids.add((tx['txid'], txs_list['height']))
         # txids = list(set([(tx['txid'], tx.get('blockheight')) for tx in txs_list if tx['address'] == address]))
         for (txid, blockheight) in txids:
+            _logger.warning("request getrawtransaction")
             tx_raw = self.proxy.getrawtransaction(txid, 1)
+            _logger.warning("request getrawtransaction")
             t = self._parse_transaction(tx_raw, blockheight)
             txs.append(t)
             if txid == after_txid:
@@ -200,8 +204,14 @@ class BitcoindClient(BaseClient):
     def synced_status(self):
         bcinfo = self.proxy.getblockchaininfo()
         not_synced_block = bcinfo['headers'] - bcinfo['blocks']
-        return not_synced_block
-    
+        last_scanned_block_obj = db.session.query(DbCacheVars).filter_by(varname='last_scanned_block').scalar()
+        if last_scanned_block_obj is None:
+            last_scanned_block = 0
+        else:
+            last_scanned_block = int(last_scanned_block_obj.value)
+        current_scanned_blocks = bcinfo['headers'] - last_scanned_block
+        return max(not_synced_block, current_scanned_blocks)
+
     def mempool(self, txid=''):
         txids = self.proxy.getrawmempool()
         if not txid:

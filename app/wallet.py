@@ -113,15 +113,6 @@ class BTCWallet():
         amount_btc = Value.from_satoshi(amount).value
         return amount_btc
 
-    def scan(self):
-        if not get_account_password():
-            return
-        w = self.wallet()
-        if not w:
-            self.generate_address()
-            w = self.wallet()
-        w.scan()
-    
     def db_wallet(self):
        wallet = db.session.query(DbWallet).first()
        return wallet
