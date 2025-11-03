@@ -545,7 +545,7 @@ class WalletTransaction(Transaction):
             db_tx = db_tx_query.first()
             if db_tx:
                 db_tx.wallet_id = self.hdwallet.wallet_id
-
+        _logger.warning(f"start store receive DbTransaction")
         if not db_tx:
             new_tx = DbTransaction(
                 wallet_id=self.hdwallet.wallet_id, txid=bytes.fromhex(self.txid), block_height=self.block_height,
@@ -571,8 +571,9 @@ class WalletTransaction(Transaction):
             db_tx.verified = self.verified
             db_tx.locktime = self.locktime
             self.hdwallet._commit()
-
+        _logger.warning(f"finished store receive DbTransaction")
         assert txidn
+        _logger.warning(f"start store inputs")
         for ti in self.inputs:
             tx_key = sess.query(DbKey).filter_by(wallet_id=self.hdwallet.wallet_id, address=ti.address).scalar()
             key_id = None
@@ -599,6 +600,8 @@ class WalletTransaction(Transaction):
                     tx_input.script = ti.unlocking_script
 
             self.hdwallet._commit()
+        _logger.warning(f"finished store inputs")       
+        _logger.warning(f"start store outputs")    
         for to in self.outputs:
             tx_key = sess.query(DbKey).\
                 filter_by(wallet_id=self.hdwallet.wallet_id, address=to.address).scalar()
@@ -618,6 +621,7 @@ class WalletTransaction(Transaction):
                 tx_output.key_id = key_id
                 tx_output.spent = spent if spent is not None else tx_output.spent
             self.hdwallet._commit()
+        _logger.warning(f"finished store outputs")       
         return txidn
 
     def info(self):
@@ -1116,7 +1120,7 @@ class Wallet(object):
         _logger.warning(f"BLOCK: {block}")
 
         txs_list = srv.getlisttransactions(block)
-
+        _logger.warning(f"start receive scanned addresses")
         addresses_in_txs = set()
         for tx in txs_list['tx']:
             for vout in tx.get('vout', []):
@@ -1128,16 +1132,21 @@ class Wallet(object):
                 addr = prevout.get('scriptPubKey', {}).get('address')
                 if addr:
                     addresses_in_txs.add(addr)
-
+        _logger.warning(f"finished receive scanned addresses")
+        _logger.warning(f"start transactions_update_confirmations")            
         self.transactions_update_confirmations()
+        _logger.warning(f"finished transactions_update_confirmations")
+        _logger.warning(f"start receive db_txs")  
         db_txs = self.session.query(DbTransaction).filter(
             DbTransaction.wallet_id == self.wallet_id,
             DbTransaction.network_name == network,
             DbTransaction.confirmations == 0
         ).all()
+        _logger.warning(f"finished receive db_txs")
+        _logger.warning(f"start transactions_update_by_txids")  
         for db_tx in db_txs:
             self.transactions_update_by_txids([db_tx.txid])
-
+        _logger.warning(f"finished transactions_update_by_txids")  
         BATCH_SIZE = 200
         MAX_RETRIES = 3
         RETRY_DELAY = 2
@@ -1149,13 +1158,16 @@ class Wallet(object):
             for batch_ids in iter_key_batches(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=addresses_in_txs, batch_size=BATCH_SIZE):
                 s = self.session()
                 try:
+                    _logger.warning(f"start receive keys")  
                     keys = s.query(DbKey).filter(DbKey.id.in_(batch_ids)).all()
-
+                    _logger.warning(f"finished receive keys")  
                     for key in keys:
                         attempt = 0
                         while True:
                             try:
+                                _logger.warning(f"start scan_key")  
                                 got_new = self.scan_key(key, txs_list)
+                                _logger.warning(f"finished scan_key")  
                                 break
                             except OperationalError as e:
                                 attempt += 1
@@ -1720,12 +1732,18 @@ class Wallet(object):
 
         # Update Transaction outputs to get list of unspent outputs (UTXO's)
         utxo_set = set()
-        _logger.warning(f"transactions_update from_transaction")
+        _logger.warning(f"transactions_update from_transaction {txs}")
         for t in txs:
+            _logger.warning(f"start transactions_update from_transaction 1 txs {txs}")
             wt = WalletTransaction.from_transaction(self, t)
+            _logger.warning(f"finished transactions_update from_transaction")
+            _logger.warning(f"start transactions_update store")
             wt.store()
+            _logger.warning(f"finished transactions_update store")
+            _logger.warning(f"start transactions_update utxos")
             utxos = [(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.inputs]
             utxo_set.update(utxos)
+            _logger.warning(f"finished transactions_update utxo_set.update(utxos)")
         _logger.warning(f"transactions_update list utxo_set {utxo_set}")    
         for utxo in list(utxo_set):
             tos = self.session.query(DbTransactionOutput).join(DbTransaction).\
