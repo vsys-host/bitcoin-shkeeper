@@ -3,7 +3,6 @@ import json
 import decimal
 import random
 import uuid
-import logging
 from app.btc_utils import BTCUtils
 from app.lib.wallets import Wallet
 from app.lib.services.services import Service
