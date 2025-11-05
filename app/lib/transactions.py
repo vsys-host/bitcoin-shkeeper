@@ -517,7 +517,7 @@ class Output(object):
 
 class Transaction(object):
     @classmethod
-    def parse(cls, rawtx, strict=True, network=DEFAULT_NETWORK):
+    def parse(cls, rawtx, strict=True, network=DEFAULT_NETWORK, default_txid=''):
         raw_bytes = b''
         if isinstance(rawtx, bytes):
             raw_bytes = rawtx
@@ -526,10 +526,10 @@ class Transaction(object):
             raw_bytes = bytes.fromhex(rawtx)
             rawtx = BytesIO(bytes.fromhex(rawtx))
 
-        return cls.parse_bytesio(rawtx, strict, network, raw_bytes=raw_bytes)
+        return cls.parse_bytesio(rawtx, strict, network, raw_bytes=raw_bytes, default_txid=default_txid)
 
     @classmethod
-    def parse_bytesio(cls, rawtx, strict=True, network=DEFAULT_NETWORK, index=None, raw_bytes=b''):
+    def parse_bytesio(cls, rawtx, strict=True, network=DEFAULT_NETWORK, index=None, raw_bytes=b'', default_txid=''):
         coinbase = False
         flag = None
         witness_type = 'legacy'
@@ -626,16 +626,16 @@ class Transaction(object):
             rawtx.seek(pos_start)
             raw_bytes = rawtx.read(raw_len)
 
-        txid = '' if witness_type == 'segwit' else double_sha256(raw_bytes)[::-1].hex()
+        txid = default_txid if witness_type == 'segwit' else double_sha256(raw_bytes)[::-1].hex()
 
         return Transaction(inputs, outputs, locktime, version, network, size=raw_len, output_total=output_total,
                            coinbase=coinbase, flag=flag, witness_type=witness_type, rawtx=raw_bytes, index=index,
                            txid=txid)
 
     @classmethod
-    def parse_hex(cls, rawtx, strict=True, network=DEFAULT_NETWORK):
+    def parse_hex(cls, rawtx, strict=True, network=DEFAULT_NETWORK, default_txid=''):
         raw_bytes = bytes.fromhex(rawtx)
-        return cls.parse_bytesio(BytesIO(raw_bytes), strict, network, raw_bytes=raw_bytes)
+        return cls.parse_bytesio(BytesIO(raw_bytes), strict, network, raw_bytes=raw_bytes, default_txid=default_txid)
 
     @classmethod
     def parse_bytes(cls, rawtx, strict=True, network=DEFAULT_NETWORK):

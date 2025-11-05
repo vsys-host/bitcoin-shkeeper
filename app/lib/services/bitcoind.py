@@ -70,7 +70,7 @@ class BitcoindClient(BaseClient):
         return utxos
 
     def _parse_transaction(self, tx, block_height=None, get_input_values=True):
-        t = Transaction.parse_hex(tx['hex'], strict=self.strict, network=self.network)
+        t = Transaction.parse_hex(tx['hex'], strict=self.strict, network=self.network, default_txid=tx['txid'])
         t.confirmations = tx.get('confirmations')
         t.block_hash = tx.get('blockhash')
         t.status = 'unconfirmed'
@@ -98,11 +98,15 @@ class BitcoindClient(BaseClient):
         t.version_int = tx['version']
         t.date = None if 'time' not in tx else datetime.fromtimestamp(tx['time'], timezone.utc)
         t.update_totals()
+        return t
 
-    def _parse_transaction_new(self, tx, block_height=None, get_input_values=True):
-        t = Transaction.parse_hex(tx['hex'], strict=self.strict, network=self.network)
-        t.confirmations = tx.get('confirmations')
-        t.block_hash = tx.get('blockhash')
+    def _parse_transaction_new(self, tx, block_height=None, block_hash=None, block_time=None, confirmations=None, get_input_values=True):
+        t = Transaction.parse_hex(tx['hex'], strict=self.strict, network=self.network, default_txid=tx['txid'])
+        t.block_height = block_height
+        t.block_hash = block_hash
+        t.confirmations = confirmations
+        t.date = datetime.fromtimestamp(block_time, timezone.utc) if block_time else None
+
         t.status = 'unconfirmed'
 
         total_input_value = 0
@@ -164,38 +168,38 @@ class BitcoindClient(BaseClient):
         return t
 
     def gettransaction(self, txid):
-        _logger.warning("request getrawtransaction")
         tx_raw = self.proxy.getrawtransaction(txid, 1)
-        _logger.warning("request getrawtransaction")
         return self._parse_transaction(tx_raw)
 
     def gettransactions(self, address, after_txid='', txs_list=[]):
         txs = []
-        txids = set()
+        txids = []
+
+        block_hash = txs_list.get('hash')
+        block_height = txs_list.get('height')
+        block_time = txs_list.get('time')
+        confirmations = txs_list.get('confirmations')
 
         for tx in txs_list['tx']:
             for vout in tx.get('vout', []):
                 addr = vout.get('scriptPubKey', {}).get('address')
                 if addr == address:
-                    txids.add((tx['txid'], txs_list['height']))
+                    txids.append((tx, block_height, block_hash, block_time, confirmations))
 
             for vin in tx.get('vin', []):
                 prevout = vin.get('prevout', {})
                 addr = prevout.get('scriptPubKey', {}).get('address')
                 if addr == address:
-                    txids.add((tx['txid'], txs_list['height']))
+                    txids.append((tx, block_height, block_hash, block_time, confirmations))
 
-        for (txid, blockheight) in txids:
+        for (tx, block_height, block_hash, block_time, confirmations) in txids:
             try:
-                _logger.warning(f"REQUEST tx_raw {txid}")
-                tx_raw = self.proxy.getrawtransaction(txid, 1)
-                t = self._parse_transaction_new(tx_raw, blockheight)
+                t = self._parse_transaction_new(tx, block_height, block_hash, block_time, confirmations)
                 txs.append(t)
-
-                if txid == after_txid:
+                if tx.get('txid') == after_txid:
                     txs = []
             except Exception as e:
-                _logger.error(f"Failed to fetch tx {txid}: {e}")
+                _logger.error(f"Failed to parse tx {tx}: {e}")
 
         return txs
 
