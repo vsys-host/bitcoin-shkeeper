@@ -1206,6 +1206,7 @@ class Wallet(object):
 
             if not something_new or not n_highest_updated:
                 break
+        self._balance_update()
         elapsed_s = round(time.time() - start_time, 2)
         _logger.warning(f"✅ SCAN COMPLETED: {elapsed_s} s, block {block}")
 
@@ -1766,9 +1767,9 @@ class Wallet(object):
 
         self.last_updated = last_updated
         self._commit()
-        _logger.warning(f"transactions_update balance update {key_id}")
-        self._balance_update(key_id=key_id)
-        _logger.warning(f"transactions_update balance update finished")
+        # _logger.warning(f"transactions_update balance update {key_id}")
+        # self._balance_update(key_id=key_id)
+        # _logger.warning(f"transactions_update balance update finished")
 
         return len(txs)
 
