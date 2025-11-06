@@ -18,10 +18,17 @@ from app.lib.transactions import Input, Output, Transaction, get_unlocking_scrip
 from app.lib.main import *
 from sqlalchemy import func, or_, asc, text
 from sqlalchemy.exc import OperationalError
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from sqlalchemy.exc import OperationalError
+from functools import lru_cache
 import time
 
 _logger = logging.getLogger(__name__)
 
+@lru_cache(maxsize=1)
+def get_flask_app():
+    from app import create_app
+    return create_app()
 
 def get_all_key_ids(session, wallet_id, account_id=None, witness_type=None, network=None, addresses=None):
     q = session.query(DbKey.id).filter(DbKey.wallet_id == wallet_id)
@@ -1093,6 +1100,7 @@ class Wallet(object):
         should_be_finished_count = 0
         while True:
             n_new = self.transactions_update(key_id=key.id, txs_list=txs_list)
+            _logger.warning(f"Found new transactions {n_new}")
             if n_new and n_new < MAX_TRANSACTIONS:
                 if should_be_finished_count:
                     _logger.info("Possible recursive loop detected in scan_key(%d): retry %d/5" %
@@ -1117,11 +1125,12 @@ class Wallet(object):
         srv = self._build_service()
         _logger.warning("⚡ SCAN STARTED ⚡")
         _logger.warning(f"BLOCK: {block}")
+        start_time = time.time()
 
         txs_list = srv.getlisttransactions(block)
-        _logger.warning(f"start receive scanned addresses")
+
         addresses_in_txs = set()
-        for tx in txs_list['tx']:
+        for tx in txs_list.get('tx', []):
             for vout in tx.get('vout', []):
                 addr = vout.get('scriptPubKey', {}).get('address')
                 if addr:
@@ -1132,22 +1141,22 @@ class Wallet(object):
                 if addr:
                     addresses_in_txs.add(addr)
         _logger.warning(f"finished receive scanned addresses")
-        _logger.warning(f"start transactions_update_confirmations")            
+        _logger.warning(f"start transactions_update_confirmations")
         self.transactions_update_confirmations()
-        _logger.warning(f"finished transactions_update_confirmations")
-        _logger.warning(f"start receive db_txs")  
+        _logger.warning(f"finished receive db_txs")
+        _logger.warning(f"start transactions_update_by_txids")
         db_txs = self.session.query(DbTransaction).filter(
             DbTransaction.wallet_id == self.wallet_id,
             DbTransaction.network_name == network,
             DbTransaction.confirmations == 0
         ).all()
-        _logger.warning(f"finished receive db_txs")
-        _logger.warning(f"start transactions_update_by_txids")  
+
         for db_tx in db_txs:
             self.transactions_update_by_txids([db_tx.txid])
-        _logger.warning(f"finished transactions_update_by_txids")  
+        _logger.warning(f"finished transactions_update_by_txids")
         MAX_RETRIES = 3
         RETRY_DELAY = 2
+        THREADS = 8
 
         while True:
             n_highest_updated = 0
@@ -1155,32 +1164,37 @@ class Wallet(object):
             keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=addresses_in_txs)
             s = self.session()
             try:
-                _logger.warning(f"start receive keys")
                 keys = s.query(DbKey).filter(DbKey.id.in_(keys_ids)).all()
-                _logger.warning(f"finished receive keys")
-                for key in keys:
-                    attempt = 0
-                    while True:
-                        try:
-                            _logger.warning(f"start scan_key")
-                            got_new = self.scan_key(key, txs_list)
-                            _logger.warning(f"finished scan_key")
-                            break
-                        except OperationalError as e:
-                            attempt += 1
-                            s.rollback()
-                            if attempt >= MAX_RETRIES:
-                                _logger.exception("scan_key failed after retries for key %s: %s", key.id, e)
-                                got_new = False
-                                break
-                            _logger.warning("Lock error in scan_key, retry %d/%d, sleeping %ss", attempt, MAX_RETRIES, RETRY_DELAY)
-                            time.sleep(RETRY_DELAY)
+                _logger.warning(f"Scanning {len(keys)} keys using {THREADS} threads")
 
-                    if got_new:
-                        something_new = True
-                        if not key.address_index:
-                            key.address_index = 0
-                        n_highest_updated = max(n_highest_updated, key.address_index + 1)
+                def scan_one_key(key_id):
+                    app = get_flask_app()
+                    with app.app_context():
+                        local_session = self.session()
+                        try:
+                            key = local_session.query(DbKey).get(key_id)
+                            for attempt in range(MAX_RETRIES):
+                                try:
+                                    got_new = self.scan_key(key, txs_list)
+                                    return (key.address_index, got_new)
+                                except OperationalError as e:
+                                    local_session.rollback()
+                                    if attempt + 1 >= MAX_RETRIES:
+                                        _logger.exception("scan_key failed for key %s: %s", key_id, e)
+                                        return (key.address_index, False)
+                                    time.sleep(RETRY_DELAY)
+                            return (key.address_index, False)
+                        finally:
+                            local_session.close()
+
+                with ThreadPoolExecutor(max_workers=THREADS) as executor:
+                    futures = [executor.submit(scan_one_key, key.id) for key in keys]
+                    for future in as_completed(futures):
+                        address_index, got_new = future.result()
+                        if got_new:
+                            something_new = True
+                            n_highest_updated = max(n_highest_updated, (address_index or 0) + 1)
+                            _logger.warning(f"got new {n_highest_updated}")
 
                 s.commit()
             except Exception:
@@ -1192,8 +1206,8 @@ class Wallet(object):
 
             if not something_new or not n_highest_updated:
                 break
-
-        _logger.warning("✅ SCAN COMPLETED ✅")
+        elapsed_s = round(time.time() - start_time, 2)
+        _logger.warning(f"✅ SCAN COMPLETED: {elapsed_s} s, block {block}")
 
     def _get_key(self, account_id=None, witness_type=None, network=None, number_of_keys=1, change=0,
                  as_list=False):
