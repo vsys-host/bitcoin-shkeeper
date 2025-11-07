@@ -1225,13 +1225,56 @@ class Wallet(object):
         _logger.warning(f"transactions_update confirmations and balance finished")
 
         # === statistics SCAN COMPLETED ===
-        related_txs = len(keys_ids)
+        _logger.warning(f"log statistics")
+        wallet_addresses = { k.address: k.id for k in self.session().query(DbKey).filter(DbKey.id.in_(keys_ids)).all()}
+        related_tx_map = {}  # {txid: set(addresses)}
+        related_utxo_count = 0
+        _logger.warning("🔍 Searching for wallet-related UTXO in block...")
 
+        for tx in txs:
+            txid = tx.get("txid")
+            tx_related_addresses = set()
+
+            # check vout — new UTXO created
+            for vout in tx.get("vout", []):
+                addr = vout.get("scriptPubKey", {}).get("address")
+                if addr in wallet_addresses:
+                    tx_related_addresses.add(addr)
+                    related_utxo_count += 1
+                    _logger.warning(f"[VOUT] TXID: {txid} → {addr}")
+
+            # check vin — UTXO being spent
+            for vin in tx.get("vin", []):
+                prevout = vin.get("prevout", {})
+                addr = prevout.get("scriptPubKey", {}).get("address")
+                if addr in wallet_addresses:
+                    tx_related_addresses.add(addr)
+                    related_utxo_count += 1
+                    _logger.warning(f"[VIN]  TXID: {txid} → {addr}")
+
+            if tx_related_addresses:
+                related_tx_map[txid] = tx_related_addresses
+
+        # --- Summary
+        related_txs = len(related_tx_map)
+        _logger.warning("────────────────────────────────────────────")
+        _logger.warning(f"💡 Found {related_txs} related transactions:")
+        for txid, addrs in related_tx_map.items():
+            _logger.warning(f"  TXID: {txid}")
+            for addr in addrs:
+                _logger.warning(f"    → {addr}")
+        _logger.warning("────────────────────────────────────────────")
+        _logger.warning(f"📊 related_txs={related_txs}, related_utxo={related_utxo_count}")
+
+        # === statistics
         elapsed_s = round(time.time() - start_time, 2)
+        related_txs = len(related_tx_map)
         correlation = (related_txs / total_txs * 100) if total_txs > 0 else 0
+
         _logger.warning(
             f"✅ SCAN COMPLETED: {elapsed_s}s, block {block}, "
             f"total_txs={total_txs}, related_txs={related_txs}, "
+            f"related_utxo={related_utxo_count}, "
             f"correlation={correlation:.2f}%"
         )
 
