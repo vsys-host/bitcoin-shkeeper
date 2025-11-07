@@ -16,7 +16,7 @@ from app.lib.values import Value, value_to_satoshi
 from app.lib.services.services import Service
 from app.lib.transactions import Input, Output, Transaction, get_unlocking_script_type, TransactionError
 from app.lib.main import *
-from sqlalchemy import func, or_, asc, text
+from sqlalchemy import func, or_, asc, text, exists
 from sqlalchemy.exc import OperationalError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy.exc import OperationalError
@@ -384,17 +384,19 @@ class WalletTransaction(Transaction):
         witness_type = 'legacy'
         if hdwallet.witness_type in ['segwit', 'p2sh-segwit']:
             witness_type = 'segwit'
-        _logger.warning(f"start addresslist")
         Transaction.__init__(self, witness_type=witness_type, *args, **kwargs)
-        _logger.warning(f"start addresslist")
-        addresslist = hdwallet.addresslist()
-        _logger.warning(f"finished addresslist {addresslist}")
-        _logger.warning(f"start self.outgoing_tx")
-        self.outgoing_tx = bool([i.address for i in self.inputs if i.address in addresslist])
-        _logger.warning(f"finished self.outgoing_tx")
-        _logger.warning(f"start self.incoming_tx")
-        self.incoming_tx = bool([o.address for o in self.outputs if o.address in addresslist])
-        _logger.warning(f"finished self.incoming_tx")
+        _logger.warning(f"start outgoing_tx/incoming_tx")
+        input_addresses = [i.address for i in self.inputs]
+        output_addresses = [o.address for o in self.outputs]
+        self.outgoing_tx = db.session.query(
+            exists().where(DbKey.address.in_(input_addresses))
+        ).scalar()
+        self.incoming_tx = db.session.query(
+            exists().where(DbKey.address.in_(output_addresses))
+        ).scalar()
+        _logger.warning(f"result self.outgoing_tx {self.outgoing_tx}")
+        _logger.warning(f"result self.incoming_tx {self.incoming_tx}")
+        _logger.warning(f"finished outgoing_tx/incoming_tx")
 
     def __repr__(self):
         return "<WalletTransaction(input_count=%d, output_count=%d, status=%s, network=%s)>" % \
