@@ -384,10 +384,17 @@ class WalletTransaction(Transaction):
         witness_type = 'legacy'
         if hdwallet.witness_type in ['segwit', 'p2sh-segwit']:
             witness_type = 'segwit'
+        _logger.warning(f"start addresslist")
         Transaction.__init__(self, witness_type=witness_type, *args, **kwargs)
+        _logger.warning(f"start addresslist")
         addresslist = hdwallet.addresslist()
+        _logger.warning(f"finished addresslist {addresslist}")
+        _logger.warning(f"start self.outgoing_tx")
         self.outgoing_tx = bool([i.address for i in self.inputs if i.address in addresslist])
+        _logger.warning(f"finished self.outgoing_tx")
+        _logger.warning(f"start self.incoming_tx")
         self.incoming_tx = bool([o.address for o in self.outputs if o.address in addresslist])
+        _logger.warning(f"finished self.incoming_tx")
 
     def __repr__(self):
         return "<WalletTransaction(input_count=%d, output_count=%d, status=%s, network=%s)>" % \
@@ -1100,7 +1107,7 @@ class Wallet(object):
         should_be_finished_count = 0
         while True:
             n_new = self.transactions_update(key_id=key.id, txs_list=txs_list)
-            _logger.warning(f"Found new transactions {n_new}")
+            # _logger.warning(f"Found new transactions {n_new}")
             if n_new and n_new < MAX_TRANSACTIONS:
                 if should_be_finished_count:
                     _logger.info("Possible recursive loop detected in scan_key(%d): retry %d/5" %
@@ -1128,9 +1135,12 @@ class Wallet(object):
         start_time = time.time()
 
         txs_list = srv.getlisttransactions(block)
+        txs = txs_list.get('tx', [])
+        total_txs = len(txs)
+        _logger.warning(f"Fetched {total_txs} transactions from block {block}")
 
         addresses_in_txs = set()
-        for tx in txs_list.get('tx', []):
+        for tx in txs:
             for vout in tx.get('vout', []):
                 addr = vout.get('scriptPubKey', {}).get('address')
                 if addr:
@@ -1141,19 +1151,17 @@ class Wallet(object):
                 if addr:
                     addresses_in_txs.add(addr)
         _logger.warning(f"finished receive scanned addresses")
-        _logger.warning(f"start transactions_update_confirmations")
-        self.transactions_update_confirmations()
-        _logger.warning(f"finished receive db_txs")
+
         _logger.warning(f"start transactions_update_by_txids")
         db_txs = self.session.query(DbTransaction).filter(
             DbTransaction.wallet_id == self.wallet_id,
             DbTransaction.network_name == network,
             DbTransaction.confirmations == 0
         ).all()
-
         for db_tx in db_txs:
             self.transactions_update_by_txids([db_tx.txid])
         _logger.warning(f"finished transactions_update_by_txids")
+
         MAX_RETRIES = 3
         RETRY_DELAY = 2
         THREADS = 8
@@ -1161,7 +1169,9 @@ class Wallet(object):
         while True:
             n_highest_updated = 0
             something_new = False
+
             keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=addresses_in_txs)
+
             s = self.session()
             try:
                 keys = s.query(DbKey).filter(DbKey.id.in_(keys_ids)).all()
@@ -1206,9 +1216,22 @@ class Wallet(object):
 
             if not something_new or not n_highest_updated:
                 break
+
+        _logger.warning(f"transactions_update confirmations and balance")
+        self.transactions_update_confirmations()
         self._balance_update()
+        _logger.warning(f"transactions_update confirmations and balance finished")
+
+        # === statistics SCAN COMPLETED ===
+        related_txs = len(keys_ids)
+
         elapsed_s = round(time.time() - start_time, 2)
-        _logger.warning(f"✅ SCAN COMPLETED: {elapsed_s} s, block {block}")
+        correlation = (related_txs / total_txs * 100) if total_txs > 0 else 0
+        _logger.warning(
+            f"✅ SCAN COMPLETED: {elapsed_s}s, block {block}, "
+            f"total_txs={total_txs}, related_txs={related_txs}, "
+            f"correlation={correlation:.2f}%"
+        )
 
     def _get_key(self, account_id=None, witness_type=None, network=None, number_of_keys=1, change=0,
                  as_list=False):
@@ -1712,11 +1735,6 @@ class Wallet(object):
         if depth is None:
             depth = self.key_depth
 
-        # Update number of confirmations and status for already known transactions
-        _logger.warning(f"transactions_update transactions_update_confirmations")
-        self.transactions_update_confirmations()
-        _logger.warning(f"transactions_update transactions_update_confirmations finished")
-
         srv = Service(network=network, wallet_name=self.name, providers=self.providers, cache_uri=self.db_cache_uri,
                       strict=self.strict)
 
@@ -1746,6 +1764,8 @@ class Wallet(object):
         utxo_set = set()
         _logger.warning(f"transactions_update from_transaction {txs}")
         unique_txs = list({t.txid: t for t in txs}.values())
+
+        _logger.warning(f"start unique_txs {unique_txs}")
         for t in unique_txs:
             _logger.warning(f"start transactions_update from_transaction 1 txs {txs}")
             wt = WalletTransaction.from_transaction(self, t)
@@ -1757,6 +1777,7 @@ class Wallet(object):
             utxos = [(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.inputs]
             utxo_set.update(utxos)
             _logger.warning(f"finished transactions_update utxo_set.update(utxos)")
+        _logger.warning(f"finished unique_txs {unique_txs}")
         _logger.warning(f"transactions_update list utxo_set {utxo_set}")    
         for utxo in list(utxo_set):
             tos = self.session.query(DbTransactionOutput).join(DbTransaction).\
