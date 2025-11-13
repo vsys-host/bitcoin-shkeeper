@@ -1238,12 +1238,11 @@ class Wallet(object):
 
         # Single-pass address collection + statistics gathering
         # Pre-fetch wallet addresses to enable statistics during first iteration
-        with log_time("fetch wallet addresses"):
-            all_keys = self.session().query(DbKey.address).filter(
-                DbKey.wallet_id == self.wallet_id,
-                DbKey.network_name == network
-            ).all()
-            wallet_addresses_set = {k.address for k in all_keys}
+        all_keys = self.session().query(DbKey.address).filter(
+            DbKey.wallet_id == self.wallet_id,
+            DbKey.network_name == network
+        ).all()
+        wallet_addresses_set = {k.address for k in all_keys}
 
         addresses_in_txs = set()
         related_tx_map = {}  # {txid: set(addresses)} - collect statistics during iteration
