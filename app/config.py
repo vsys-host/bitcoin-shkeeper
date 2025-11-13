@@ -30,7 +30,7 @@ config = {
     'COUNT_RECEIVED_TRANSACTIONS': os.environ.get('COUNT_RECEIVED_TRANSACTIONS', "1000"),
     'MIN_CONFIRMS': os.environ.get('MIN_CONFIRMS', "1"),
     'LEDGERS_TO_WAIT': os.environ.get('LEDGERS_TO_WAIT', "100"), # used to calc last_ledger_sequence for payments
-    'BTC_NETWORK': os.environ.get('BTC_NETWORK', 'regtest'),  # main, testnet, regtest
+    'BTC_NETWORK': os.environ.get('BTC_NETWORK', 'main'),  # main, testnet, regtest
 }
 
 def is_test_network():

@@ -159,7 +159,7 @@ class Service(object):
                         continue
 
                     self.results[sp] = res
-                    if method in ("getblock", "getlisttransactions"):
+                    if method in ("getblock", "getblocktransactions"):
                         print(f"--> Success from provider {sp}")
                     else:
                         print(f"--> Success from provider {sp}: {res}")
@@ -334,8 +334,8 @@ class Service(object):
     def sendrawtransaction(self, rawtx):
         return self._provider_execute('sendrawtransaction', rawtx)
 
-    def getlisttransactions(self, block):
-        return self._provider_execute('getlisttransactions', block)
+    def getblocktransactions(self, block):
+        return self._provider_execute('getblocktransactions', block)
     
     def getblockhash(self, height):
         return self._provider_execute('getblockhash', height)

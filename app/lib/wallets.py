@@ -528,8 +528,8 @@ class WalletTransaction(Transaction):
 
         srv = Service(network=self.network.name, wallet_name=self.hdwallet.name, providers=self.hdwallet.providers,
                       cache_uri=self.hdwallet.db_cache_uri, strict=self.hdwallet.strict)
-        # res = srv.sendrawtransaction(self.raw_hex())
-        res = {"txid": "23443534"}
+        res = srv.sendrawtransaction(self.raw_hex())
+        # res = {"txid": "23443534"}
         if not res:
             self.error = "Cannot send transaction. %s" % srv.errors
             return None
@@ -1231,7 +1231,7 @@ class Wallet(object):
         _logger.warning(f"BLOCK: {block}")
         start_time = time.time()
 
-        txs_list = srv.getlisttransactions(block)
+        txs_list = srv.getblocktransactions(block)
         txs = txs_list.get('tx', [])
         total_txs = len(txs)
         _logger.warning(f"Fetched {total_txs} transactions from block {block}")

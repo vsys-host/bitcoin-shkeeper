@@ -214,11 +214,11 @@ class BitcoindClient(BaseClient):
         return txs
 
 
-    def getlisttransactions(self, block):
-        _logger.warning("REQUEST getlisttransactions")
+    def getblocktransactions(self, block_hash):
+        _logger.warning("REQUEST getblocktransactions")
         # MAX_WALLET_TRANSACTIONS = int(config['COUNT_RECEIVED_TRANSACTIONS'])
         # txs_list = self.proxy.listtransactions("*", MAX_WALLET_TRANSACTIONS, 0, True)
-        txs_list = self.proxy.getblock(block, 3)
+        txs_list = self.proxy.getblock(block_hash, 3)
         return txs_list
 
     def importaddress(self, address):
