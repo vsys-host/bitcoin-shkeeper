@@ -1258,9 +1258,11 @@ class Wallet(object):
             DbTransaction.confirmations == 0
         ).all()
 
+        # Batch all txids together instead of calling individually
         with log_time("transactions update by txids"):
-            for db_tx in db_txs:
-                self.transactions_update_by_txids([db_tx.txid])
+            if db_txs:
+                all_txids = [db_tx.txid for db_tx in db_txs]
+                self.transactions_update_by_txids(all_txids)
 
         MAX_RETRIES = 3
         RETRY_DELAY = 2
@@ -1860,16 +1862,30 @@ class Wallet(object):
         utxo_set = set()
         for t in txs:
             wt = WalletTransaction.from_transaction(self, t)
-            wt.store()
+            wt.store(commit=False)  # Don't commit for each transaction
             utxos = [(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.inputs]
             utxo_set.update(utxos)
 
-        for utxo in list(utxo_set):
-            tos = self.session.query(DbTransactionOutput).join(DbTransaction). \
-                filter(DbTransaction.txid == bytes.fromhex(utxo[0]), DbTransactionOutput.output_n == utxo[1],
-                       DbTransactionOutput.spent.is_(False)).all()
-            for u in tos:
-                u.spent = True
+        # Batch update UTXOs instead of N queries
+        if utxo_set:
+            utxo_list = [(bytes.fromhex(txid), n) for txid, n in utxo_set]
+            sql_values = " UNION ALL ".join(f"SELECT :txid{i} AS txid, :n{i} AS output_n" for i in range(len(utxo_list)))
+            sql_params = {}
+            for i, (txid, n) in enumerate(utxo_list):
+                sql_params[f"txid{i}"] = txid
+                sql_params[f"n{i}"] = n
+
+            sql = f"""
+            UPDATE transaction_outputs AS o
+            JOIN transactions AS t ON t.id = o.transaction_id
+            JOIN (
+                {sql_values}
+            ) AS u ON t.txid = u.txid AND o.output_n = u.output_n
+            SET o.spent = TRUE
+            WHERE o.spent = FALSE
+            """
+            self.session.execute(sql, sql_params)
+
         self._commit()
         # self._balance_update(account_id=account_id, network=network, key_id=key_id)
 
@@ -1887,17 +1903,35 @@ class Wallet(object):
         last_updated = datetime.now(timezone.utc)
         _logger.warning(f"transactions_update addresslist {addresslist}")
 
+        # Batch fetch latest_txid for all addresses (1 query instead of N)
+        latest_txids = {}
+        if addresslist:
+            db_keys = self.session.query(DbKey.address, DbKey.latest_txid).filter(
+                DbKey.wallet_id == self.wallet_id,
+                DbKey.address.in_(addresslist)
+            ).all()
+            latest_txids = {addr: (txid.hex() if txid else '') for addr, txid in db_keys}
+
         txs = []
+        txs_by_address = {}  # Track last tx per address for batch update
         for address in addresslist:
             with log_time("txs gettransactions"):
-              txs += srv.gettransactions(address, limit=limit, after_txid=self.transaction_last(address), txs_list=txs_list)
+              after_txid = latest_txids.get(address, '')
+              new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
+              txs += new_txs
+              if new_txs and new_txs[-1].confirmations:
+                  txs_by_address[address] = new_txs[-1].txid
             if not srv.complete:
                 if txs and txs[-1].date and txs[-1].date < last_updated:
                     last_updated = txs[-1].date
-            if txs and txs[-1].confirmations:
-                dbkey = self.session.query(DbKey).filter(DbKey.address == address, DbKey.wallet_id == self.wallet_id)
-                if not dbkey.update({DbKey.latest_txid: bytes.fromhex(txs[-1].txid)}):
-                    raise WalletError(f"Failed to update latest transaction id for key {address}")
+
+        # Batch update latest_txid for all addresses (1 query instead of N)
+        if txs_by_address:
+            for address, txid in txs_by_address.items():
+                self.session.query(DbKey).filter(
+                    DbKey.address == address,
+                    DbKey.wallet_id == self.wallet_id
+                ).update({DbKey.latest_txid: bytes.fromhex(txid)}, synchronize_session=False)
 
         if txs is False:
             raise WalletError("No response from any service provider, could not update transactions")
