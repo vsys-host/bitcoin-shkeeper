@@ -16,7 +16,7 @@ from app.lib.values import Value, value_to_satoshi
 from app.lib.services.services import Service
 from app.lib.transactions import Input, Output, Transaction, get_unlocking_script_type, TransactionError
 from app.lib.main import *
-from sqlalchemy import func, or_, asc, text, exists
+from sqlalchemy import func, or_, asc, text, exists, select
 from sqlalchemy.exc import OperationalError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy.exc import OperationalError
@@ -576,7 +576,6 @@ class WalletTransaction(Transaction):
                 db_tx.wallet_id = self.hdwallet.wallet_id
 
         _logger.debug("start store receive DbTransaction")
-
         if not db_tx:
             db_tx = DbTransaction(
                 wallet_id=self.hdwallet.wallet_id,
@@ -639,12 +638,10 @@ class WalletTransaction(Transaction):
         # Single batched query for all keys
         keys_by_address = {}
         if all_addresses:
-            db_keys = sess.query(DbKey).filter(
-                DbKey.wallet_id == self.hdwallet.wallet_id,
-                DbKey.address.in_(all_addresses)
-            ).all()
-            keys_by_address = {key.address: key for key in db_keys}
-        _logger.debug(f"batch key lookup complete: {len(keys_by_address)} keys found")
+            stmt = select(DbKey.id, DbKey.address).where(DbKey.address.in_(all_addresses))
+            result = sess.execute(stmt)
+            keys_by_address = {row.address: DbKey(id=row.id, address=row.address) for row in result}
+            _logger.debug(f"batch key lookup complete: {len(keys_by_address)} keys found")
 
         # Pre-fetch existing inputs and outputs in batch
         existing_inputs = {}
