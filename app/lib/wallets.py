@@ -575,7 +575,7 @@ class WalletTransaction(Transaction):
             if db_tx:
                 db_tx.wallet_id = self.hdwallet.wallet_id
 
-        _logger.warning("start store receive DbTransaction")
+        _logger.debug("start store receive DbTransaction")
 
         if not db_tx:
             db_tx = DbTransaction(
@@ -624,10 +624,10 @@ class WalletTransaction(Transaction):
         if commit:
             self.hdwallet._commit()
 
-        _logger.warning("finished store receive DbTransaction")
+        _logger.debug("finished store receive DbTransaction")
 
         # Pre-fetch all keys in ONE query instead of N queries (60-120x faster)
-        _logger.warning("start batch key lookup")
+        _logger.debug("start batch key lookup")
         all_addresses = set()
         for ti in self.inputs:
             if ti.address:
@@ -644,7 +644,7 @@ class WalletTransaction(Transaction):
                 DbKey.address.in_(all_addresses)
             ).all()
             keys_by_address = {key.address: key for key in db_keys}
-        _logger.warning(f"batch key lookup complete: {len(keys_by_address)} keys found")
+        _logger.debug(f"batch key lookup complete: {len(keys_by_address)} keys found")
 
         # Pre-fetch existing inputs and outputs in batch
         existing_inputs = {}
@@ -657,7 +657,7 @@ class WalletTransaction(Transaction):
             existing_outputs = {out.output_n: out for out in db_outputs}
 
         # --- Store inputs ---
-        _logger.warning("start store inputs")
+        _logger.debug("start store inputs")
         for ti in self.inputs:
             # Use cached key lookup (O(1) instead of O(N) DB query)
             tx_key = keys_by_address.get(ti.address)
@@ -698,10 +698,10 @@ class WalletTransaction(Transaction):
 
         if commit:
             self.hdwallet._commit()
-        _logger.warning("finished store inputs")
+        _logger.debug("finished store inputs")
 
         # --- Store outputs ---
-        _logger.warning("start store outputs")
+        _logger.debug("start store outputs")
         for to in self.outputs:
             # Use cached key lookup (O(1) instead of O(N) DB query)
             tx_key = keys_by_address.get(to.address)
@@ -732,7 +732,7 @@ class WalletTransaction(Transaction):
 
         if commit:
             self.hdwallet._commit()
-        _logger.warning("finished store outputs")
+        _logger.debug("finished store outputs")
 
         return txidn
 
@@ -1239,18 +1239,47 @@ class Wallet(object):
         total_txs = len(txs)
         _logger.warning(f"Fetched {total_txs} transactions from block {block}")
 
+        # Single-pass address collection + statistics gathering
+        # Pre-fetch wallet addresses to enable statistics during first iteration
+        with log_time("fetch wallet addresses"):
+            all_keys = self.session().query(DbKey.address).filter(
+                DbKey.wallet_id == self.wallet_id,
+                DbKey.network_name == network
+            ).all()
+            wallet_addresses_set = {k.address for k in all_keys}
+
         addresses_in_txs = set()
+        related_tx_map = {}  # {txid: set(addresses)} - collect statistics during iteration
+        related_utxo_count = 0
+
         for tx in txs:
+            txid = tx.get('txid')
+            tx_related_addresses = set()
+
             for vout in tx.get('vout', []):
                 addr = vout.get('scriptPubKey', {}).get('address')
                 if addr:
                     addresses_in_txs.add(addr)
+                    # Collect statistics here instead of separate iteration
+                    if addr in wallet_addresses_set:
+                        tx_related_addresses.add(addr)
+                        related_utxo_count += 1
+                        _logger.debug(f"[VOUT] TXID: {txid} → {addr}")
+
             for vin in tx.get('vin', []):
                 prevout = vin.get('prevout', {})
                 addr = prevout.get('scriptPubKey', {}).get('address')
                 if addr:
                     addresses_in_txs.add(addr)
-        _logger.warning(f"finished receive scanned addresses")
+                    if addr in wallet_addresses_set:
+                        tx_related_addresses.add(addr)
+                        related_utxo_count += 1
+                        _logger.debug(f"[VIN]  TXID: {txid} → {addr}")
+
+            if tx_related_addresses:
+                related_tx_map[txid] = tx_related_addresses
+
+        _logger.warning(f"Address scan complete: {len(addresses_in_txs)} unique addresses, {len(related_tx_map)} related transactions")
 
         db_txs = self.session.query(DbTransaction).filter(
             DbTransaction.wallet_id == self.wallet_id,
@@ -1325,52 +1354,18 @@ class Wallet(object):
             self.transactions_update_confirmations()
             self._balance_update()
 
-        # === statistics SCAN COMPLETED ===
-        _logger.warning(f"log statistics")
-        wallet_addresses = { k.address: k.id for k in self.session().query(DbKey).filter(DbKey.id.in_(keys_ids)).all()}
-        related_tx_map = {}  # {txid: set(addresses)}
-        related_utxo_count = 0
-        _logger.warning("🔍 Searching for wallet-related UTXO in block...")
-
-        for tx in txs:
-            txid = tx.get("txid")
-            tx_related_addresses = set()
-
-            # check vout — new UTXO created
-            for vout in tx.get("vout", []):
-                addr = vout.get("scriptPubKey", {}).get("address")
-                if addr in wallet_addresses:
-                    tx_related_addresses.add(addr)
-                    related_utxo_count += 1
-                    _logger.warning(f"[VOUT] TXID: {txid} → {addr}")
-
-            # check vin — UTXO being spent
-            for vin in tx.get("vin", []):
-                prevout = vin.get("prevout", {})
-                addr = prevout.get("scriptPubKey", {}).get("address")
-                if addr in wallet_addresses:
-                    tx_related_addresses.add(addr)
-                    related_utxo_count += 1
-                    _logger.warning(f"[VIN]  TXID: {txid} → {addr}")
-
-            if tx_related_addresses:
-                related_tx_map[txid] = tx_related_addresses
-
-        # --- Summary
-        related_txs = len(related_tx_map)
-        _logger.warning("────────────────────────────────────────────")
-        _logger.warning(f"💡 Found {related_txs} related transactions:")
-        for txid, addrs in related_tx_map.items():
-            _logger.warning(f"  TXID: {txid}")
-            for addr in addrs:
-                _logger.warning(f"    → {addr}")
-        _logger.warning("────────────────────────────────────────────")
-        _logger.warning(f"📊 related_txs={related_txs}, related_utxo={related_utxo_count}")
-
-        # === statistics
+        # === Final statistics (using data collected during first iteration) ===
         elapsed_s = round(time.time() - start_time, 2)
         related_txs = len(related_tx_map)
         correlation = (related_txs / total_txs * 100) if total_txs > 0 else 0
+
+        _logger.warning("────────────────────────────────────────────")
+        _logger.warning(f"💡 Found {related_txs} related transactions:")
+        for txid, addrs in related_tx_map.items():
+            _logger.debug(f"  TXID: {txid}")
+            for addr in addrs:
+                _logger.debug(f"    → {addr}")
+        _logger.warning("────────────────────────────────────────────")
 
         _logger.warning(
             f"✅ SCAN COMPLETED: {elapsed_s}s, block {block}, "
@@ -1915,12 +1910,11 @@ class Wallet(object):
         txs = []
         txs_by_address = {}  # Track last tx per address for batch update
         for address in addresslist:
-            with log_time("txs gettransactions"):
-              after_txid = latest_txids.get(address, '')
-              new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
-              txs += new_txs
-              if new_txs and new_txs[-1].confirmations:
-                  txs_by_address[address] = new_txs[-1].txid
+            after_txid = latest_txids.get(address, '')
+            new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
+            txs += new_txs
+            if new_txs and new_txs[-1].confirmations:
+                txs_by_address[address] = new_txs[-1].txid
             if not srv.complete:
                 if txs and txs[-1].date and txs[-1].date < last_updated:
                     last_updated = txs[-1].date
