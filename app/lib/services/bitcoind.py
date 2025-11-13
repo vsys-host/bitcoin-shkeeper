@@ -173,7 +173,8 @@ class BitcoindClient(BaseClient):
 
     def gettransactions(self, address, after_txid='', txs_list=[]):
         txs = []
-        txids = []
+        # Use dict to avoid duplicates when address appears in both inputs and outputs
+        txids = {}
 
         block_hash = txs_list.get('hash')
         block_height = txs_list.get('height')
@@ -181,22 +182,31 @@ class BitcoindClient(BaseClient):
         confirmations = txs_list.get('confirmations')
 
         for tx in txs_list['tx']:
+            tx_id = tx.get('txid')
+            matched = False
+
             for vout in tx.get('vout', []):
                 addr = vout.get('scriptPubKey', {}).get('address')
                 if addr == address:
-                    txids.append((tx, block_height, block_hash, block_time, confirmations))
+                    matched = True
+                    break
 
-            for vin in tx.get('vin', []):
-                prevout = vin.get('prevout', {})
-                addr = prevout.get('scriptPubKey', {}).get('address')
-                if addr == address:
-                    txids.append((tx, block_height, block_hash, block_time, confirmations))
+            if not matched:
+                for vin in tx.get('vin', []):
+                    prevout = vin.get('prevout', {})
+                    addr = prevout.get('scriptPubKey', {}).get('address')
+                    if addr == address:
+                        matched = True
+                        break
 
-        for (tx, block_height, block_hash, block_time, confirmations) in txids:
+            if matched:
+                txids[tx_id] = (tx, block_height, block_hash, block_time, confirmations)
+
+        for tx_id, (tx, block_height, block_hash, block_time, confirmations) in txids.items():
             try:
                 t = self._parse_transaction_new(tx, block_height, block_hash, block_time, confirmations)
                 txs.append(t)
-                if tx.get('txid') == after_txid:
+                if tx_id == after_txid:
                     txs = []
             except Exception as e:
                 _logger.error(f"Failed to parse tx {tx}: {e}")
@@ -204,11 +214,11 @@ class BitcoindClient(BaseClient):
         return txs
 
 
-    def getlisttransactions(self, block):
-        _logger.warning("REQUEST getlisttransactions")
+    def getblocktransactions(self, block_hash):
+        _logger.warning("REQUEST getblocktransactions")
         # MAX_WALLET_TRANSACTIONS = int(config['COUNT_RECEIVED_TRANSACTIONS'])
         # txs_list = self.proxy.listtransactions("*", MAX_WALLET_TRANSACTIONS, 0, True)
-        txs_list = self.proxy.getblock(block, 3)
+        txs_list = self.proxy.getblock(block_hash, 3)
         return txs_list
 
     def importaddress(self, address):
@@ -298,10 +308,20 @@ class BitcoindClient(BaseClient):
         txs = []
         if parse_transactions:
             bd = self.proxy.getblock(blockid, 3)
+            # use _parse_transaction_new which uses prevout data
+            # from verbosity=3 response instead of making individual RPC calls per input
             for tx in bd['tx'][(page - 1) * limit:page * limit]:
                 tx['time'] = bd['time']
                 tx['blockhash'] = bd['hash']
-                txs.append(self._parse_transaction(tx, block_height=bd['height'], get_input_values=True))
+                # Use optimized parser that extracts values from prevout (no extra RPC calls)
+                txs.append(self._parse_transaction_new(
+                    tx,
+                    block_height=bd['height'],
+                    block_hash=bd['hash'],
+                    block_time=bd['time'],
+                    confirmations=bd.get('confirmations'),
+                    get_input_values=True
+                ))
         else:
             bd = self.proxy.getblock(blockid, 1)
             txs = bd['tx']

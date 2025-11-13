@@ -29,7 +29,6 @@ def log_loop():
         network_name=wallet.network.name
     ).scalar()
     logger.info(f"DbCacheVars value {value}")
-
     if not value:
         logger.info(f"No last_scanned_block found, initializing with {latest_height}")
         new_var = DbCacheVars(

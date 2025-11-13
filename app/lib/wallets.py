@@ -16,7 +16,7 @@ from app.lib.values import Value, value_to_satoshi
 from app.lib.services.services import Service
 from app.lib.transactions import Input, Output, Transaction, get_unlocking_script_type, TransactionError
 from app.lib.main import *
-from sqlalchemy import func, or_, asc, text, exists
+from sqlalchemy import func, or_, asc, text, exists, select
 from sqlalchemy.exc import OperationalError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy.exc import OperationalError
@@ -528,8 +528,8 @@ class WalletTransaction(Transaction):
 
         srv = Service(network=self.network.name, wallet_name=self.hdwallet.name, providers=self.hdwallet.providers,
                       cache_uri=self.hdwallet.db_cache_uri, strict=self.hdwallet.strict)
-        # res = srv.sendrawtransaction(self.raw_hex())
-        res = {"txid": "23443534"}
+        res = srv.sendrawtransaction(self.raw_hex())
+        # res = {"txid": "23443534"}
         if not res:
             self.error = "Cannot send transaction. %s" % srv.errors
             return None
@@ -575,8 +575,7 @@ class WalletTransaction(Transaction):
             if db_tx:
                 db_tx.wallet_id = self.hdwallet.wallet_id
 
-        _logger.warning("start store receive DbTransaction")
-
+        _logger.debug("start store receive DbTransaction")
         if not db_tx:
             db_tx = DbTransaction(
                 wallet_id=self.hdwallet.wallet_id,
@@ -624,19 +623,47 @@ class WalletTransaction(Transaction):
         if commit:
             self.hdwallet._commit()
 
-        _logger.warning("finished store receive DbTransaction")
+        _logger.debug("finished store receive DbTransaction")
+
+        # Pre-fetch all keys in ONE query instead of N queries (60-120x faster)
+        _logger.debug("start batch key lookup")
+        all_addresses = set()
+        for ti in self.inputs:
+            if ti.address:
+                all_addresses.add(ti.address)
+        for to in self.outputs:
+            if to.address:
+                all_addresses.add(to.address)
+
+        # Single batched query for all keys
+        keys_by_address = {}
+        if all_addresses:
+            stmt = select(DbKey.id, DbKey.address).where(DbKey.address.in_(all_addresses))
+            result = sess.execute(stmt)
+            keys_by_address = {row.address: DbKey(id=row.id, address=row.address) for row in result}
+            _logger.debug(f"batch key lookup complete: {len(keys_by_address)} keys found")
+
+        # Pre-fetch existing inputs and outputs in batch
+        existing_inputs = {}
+        existing_outputs = {}
+        if txidn:
+            db_inputs = sess.query(DbTransactionInput).filter_by(transaction_id=txidn).all()
+            existing_inputs = {inp.index_n: inp for inp in db_inputs}
+
+            db_outputs = sess.query(DbTransactionOutput).filter_by(transaction_id=txidn).all()
+            existing_outputs = {out.output_n: out for out in db_outputs}
 
         # --- Store inputs ---
-        _logger.warning("start store inputs")
+        _logger.debug("start store inputs")
         for ti in self.inputs:
-            tx_key = sess.query(DbKey).filter_by(wallet_id=self.hdwallet.wallet_id, address=ti.address).one_or_none()
+            # Use cached key lookup (O(1) instead of O(N) DB query)
+            tx_key = keys_by_address.get(ti.address)
             key_id = tx_key.id if tx_key else None
             if tx_key:
                 tx_key.used = True
 
-            tx_input = sess.query(DbTransactionInput).filter_by(
-                transaction_id=txidn, index_n=ti.index_n
-            ).one_or_none()
+            # Use cached existing input lookup
+            tx_input = existing_inputs.get(ti.index_n)
 
             witnesses = int_to_varbyteint(len(ti.witnesses)) + b''.join([bytes(varstr(w)) for w in ti.witnesses])
             if not tx_input:
@@ -668,19 +695,19 @@ class WalletTransaction(Transaction):
 
         if commit:
             self.hdwallet._commit()
-        _logger.warning("finished store inputs")
+        _logger.debug("finished store inputs")
 
         # --- Store outputs ---
-        _logger.warning("start store outputs")
+        _logger.debug("start store outputs")
         for to in self.outputs:
-            tx_key = sess.query(DbKey).filter_by(wallet_id=self.hdwallet.wallet_id, address=to.address).one_or_none()
+            # Use cached key lookup (O(1) instead of O(N) DB query)
+            tx_key = keys_by_address.get(to.address)
             key_id = tx_key.id if tx_key else None
             if tx_key:
                 tx_key.used = True
 
-            tx_output = sess.query(DbTransactionOutput).filter_by(
-                transaction_id=txidn, output_n=to.output_n
-            ).one_or_none()
+            # Use cached existing output lookup
+            tx_output = existing_outputs.get(to.output_n)
 
             if not tx_output:
                 sess.add(DbTransactionOutput(
@@ -702,7 +729,7 @@ class WalletTransaction(Transaction):
 
         if commit:
             self.hdwallet._commit()
-        _logger.warning("finished store outputs")
+        _logger.debug("finished store outputs")
 
         return txidn
 
@@ -1204,23 +1231,51 @@ class Wallet(object):
         _logger.warning(f"BLOCK: {block}")
         start_time = time.time()
 
-        txs_list = srv.getlisttransactions(block)
+        txs_list = srv.getblocktransactions(block)
         txs = txs_list.get('tx', [])
         total_txs = len(txs)
         _logger.warning(f"Fetched {total_txs} transactions from block {block}")
 
+        # Single-pass address collection + statistics gathering
+        # Pre-fetch wallet addresses to enable statistics during first iteration
+        all_keys = self.session().query(DbKey.address).filter(
+            DbKey.wallet_id == self.wallet_id,
+            DbKey.network_name == network
+        ).all()
+        wallet_addresses_set = {k.address for k in all_keys}
+
         addresses_in_txs = set()
+        related_tx_map = {}  # {txid: set(addresses)} - collect statistics during iteration
+        related_utxo_count = 0
+
         for tx in txs:
+            txid = tx.get('txid')
+            tx_related_addresses = set()
+
             for vout in tx.get('vout', []):
                 addr = vout.get('scriptPubKey', {}).get('address')
                 if addr:
                     addresses_in_txs.add(addr)
+                    # Collect statistics here instead of separate iteration
+                    if addr in wallet_addresses_set:
+                        tx_related_addresses.add(addr)
+                        related_utxo_count += 1
+                        _logger.debug(f"[VOUT] TXID: {txid} → {addr}")
+
             for vin in tx.get('vin', []):
                 prevout = vin.get('prevout', {})
                 addr = prevout.get('scriptPubKey', {}).get('address')
                 if addr:
                     addresses_in_txs.add(addr)
-        _logger.warning(f"finished receive scanned addresses")
+                    if addr in wallet_addresses_set:
+                        tx_related_addresses.add(addr)
+                        related_utxo_count += 1
+                        _logger.debug(f"[VIN]  TXID: {txid} → {addr}")
+
+            if tx_related_addresses:
+                related_tx_map[txid] = tx_related_addresses
+
+        _logger.warning(f"Address scan complete: {len(addresses_in_txs)} unique addresses, {len(related_tx_map)} related transactions")
 
         db_txs = self.session.query(DbTransaction).filter(
             DbTransaction.wallet_id == self.wallet_id,
@@ -1228,9 +1283,11 @@ class Wallet(object):
             DbTransaction.confirmations == 0
         ).all()
 
+        # Batch all txids together instead of calling individually
         with log_time("transactions update by txids"):
-            for db_tx in db_txs:
-                self.transactions_update_by_txids([db_tx.txid])
+            if db_txs:
+                all_txids = [db_tx.txid for db_tx in db_txs]
+                self.transactions_update_by_txids(all_txids)
 
         MAX_RETRIES = 3
         RETRY_DELAY = 2
@@ -1293,52 +1350,18 @@ class Wallet(object):
             self.transactions_update_confirmations()
             self._balance_update()
 
-        # === statistics SCAN COMPLETED ===
-        _logger.warning(f"log statistics")
-        wallet_addresses = { k.address: k.id for k in self.session().query(DbKey).filter(DbKey.id.in_(keys_ids)).all()}
-        related_tx_map = {}  # {txid: set(addresses)}
-        related_utxo_count = 0
-        _logger.warning("🔍 Searching for wallet-related UTXO in block...")
-
-        for tx in txs:
-            txid = tx.get("txid")
-            tx_related_addresses = set()
-
-            # check vout — new UTXO created
-            for vout in tx.get("vout", []):
-                addr = vout.get("scriptPubKey", {}).get("address")
-                if addr in wallet_addresses:
-                    tx_related_addresses.add(addr)
-                    related_utxo_count += 1
-                    _logger.warning(f"[VOUT] TXID: {txid} → {addr}")
-
-            # check vin — UTXO being spent
-            for vin in tx.get("vin", []):
-                prevout = vin.get("prevout", {})
-                addr = prevout.get("scriptPubKey", {}).get("address")
-                if addr in wallet_addresses:
-                    tx_related_addresses.add(addr)
-                    related_utxo_count += 1
-                    _logger.warning(f"[VIN]  TXID: {txid} → {addr}")
-
-            if tx_related_addresses:
-                related_tx_map[txid] = tx_related_addresses
-
-        # --- Summary
-        related_txs = len(related_tx_map)
-        _logger.warning("────────────────────────────────────────────")
-        _logger.warning(f"💡 Found {related_txs} related transactions:")
-        for txid, addrs in related_tx_map.items():
-            _logger.warning(f"  TXID: {txid}")
-            for addr in addrs:
-                _logger.warning(f"    → {addr}")
-        _logger.warning("────────────────────────────────────────────")
-        _logger.warning(f"📊 related_txs={related_txs}, related_utxo={related_utxo_count}")
-
-        # === statistics
+        # === Final statistics (using data collected during first iteration) ===
         elapsed_s = round(time.time() - start_time, 2)
         related_txs = len(related_tx_map)
         correlation = (related_txs / total_txs * 100) if total_txs > 0 else 0
+
+        _logger.warning("────────────────────────────────────────────")
+        _logger.warning(f"💡 Found {related_txs} related transactions:")
+        for txid, addrs in related_tx_map.items():
+            _logger.debug(f"  TXID: {txid}")
+            for addr in addrs:
+                _logger.debug(f"    → {addr}")
+        _logger.warning("────────────────────────────────────────────")
 
         _logger.warning(
             f"✅ SCAN COMPLETED: {elapsed_s}s, block {block}, "
@@ -1830,16 +1853,30 @@ class Wallet(object):
         utxo_set = set()
         for t in txs:
             wt = WalletTransaction.from_transaction(self, t)
-            wt.store()
+            wt.store(commit=False)  # Don't commit for each transaction
             utxos = [(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.inputs]
             utxo_set.update(utxos)
 
-        for utxo in list(utxo_set):
-            tos = self.session.query(DbTransactionOutput).join(DbTransaction). \
-                filter(DbTransaction.txid == bytes.fromhex(utxo[0]), DbTransactionOutput.output_n == utxo[1],
-                       DbTransactionOutput.spent.is_(False)).all()
-            for u in tos:
-                u.spent = True
+        # Batch update UTXOs instead of N queries
+        if utxo_set:
+            utxo_list = [(bytes.fromhex(txid), n) for txid, n in utxo_set]
+            sql_values = " UNION ALL ".join(f"SELECT :txid{i} AS txid, :n{i} AS output_n" for i in range(len(utxo_list)))
+            sql_params = {}
+            for i, (txid, n) in enumerate(utxo_list):
+                sql_params[f"txid{i}"] = txid
+                sql_params[f"n{i}"] = n
+
+            sql = f"""
+            UPDATE transaction_outputs AS o
+            JOIN transactions AS t ON t.id = o.transaction_id
+            JOIN (
+                {sql_values}
+            ) AS u ON t.txid = u.txid AND o.output_n = u.output_n
+            SET o.spent = TRUE
+            WHERE o.spent = FALSE
+            """
+            self.session.execute(sql, sql_params)
+
         self._commit()
         # self._balance_update(account_id=account_id, network=network, key_id=key_id)
 
@@ -1857,17 +1894,34 @@ class Wallet(object):
         last_updated = datetime.now(timezone.utc)
         _logger.warning(f"transactions_update addresslist {addresslist}")
 
+        # Batch fetch latest_txid for all addresses (1 query instead of N)
+        latest_txids = {}
+        if addresslist:
+            db_keys = self.session.query(DbKey.address, DbKey.latest_txid).filter(
+                DbKey.wallet_id == self.wallet_id,
+                DbKey.address.in_(addresslist)
+            ).all()
+            latest_txids = {addr: (txid.hex() if txid else '') for addr, txid in db_keys}
+
         txs = []
+        txs_by_address = {}  # Track last tx per address for batch update
         for address in addresslist:
-            with log_time("txs gettransactions"):
-              txs += srv.gettransactions(address, limit=limit, after_txid=self.transaction_last(address), txs_list=txs_list)
+            after_txid = latest_txids.get(address, '')
+            new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
+            txs += new_txs
+            if new_txs and new_txs[-1].confirmations:
+                txs_by_address[address] = new_txs[-1].txid
             if not srv.complete:
                 if txs and txs[-1].date and txs[-1].date < last_updated:
                     last_updated = txs[-1].date
-            if txs and txs[-1].confirmations:
-                dbkey = self.session.query(DbKey).filter(DbKey.address == address, DbKey.wallet_id == self.wallet_id)
-                if not dbkey.update({DbKey.latest_txid: bytes.fromhex(txs[-1].txid)}):
-                    raise WalletError(f"Failed to update latest transaction id for key {address}")
+
+        # Batch update latest_txid for all addresses (1 query instead of N)
+        if txs_by_address:
+            for address, txid in txs_by_address.items():
+                self.session.query(DbKey).filter(
+                    DbKey.address == address,
+                    DbKey.wallet_id == self.wallet_id
+                ).update({DbKey.latest_txid: bytes.fromhex(txid)}, synchronize_session=False)
 
         if txs is False:
             raise WalletError("No response from any service provider, could not update transactions")

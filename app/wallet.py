@@ -8,6 +8,8 @@ from app.lib.wallets import Wallet
 from app.lib.services.services import Service
 # from app.lib.encoding import addr_bech32_to_pubkeyhash, addr_base58_to_pubkeyhash
 import requests
+import time
+import sqlalchemy
 from flask import current_app as app
 from .config import config
 from .models import DbWallet, DbTransaction, db
@@ -115,14 +117,26 @@ class BTCWallet():
     def db_wallet(self):
        wallet = db.session.query(DbWallet).first()
        return wallet
-    
+
     def wallet_name(self):
         if not get_account_password():
             return
         dbw = self.db_wallet()
         if dbw is None:
-            self.generate_address()
-            dbw = self.db_wallet()
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    self.generate_address()
+                    db.session.commit()
+                    dbw = self.db_wallet()
+                    break
+                except sqlalchemy.exc.SQLAlchemyError as e:
+                    db.session.rollback()
+                    wait_time = 2 * attempt
+                    print(f"SQLAlchemy error detected: {e}. Retrying in {wait_time}s (attempt {attempt})")
+                    time.sleep(wait_time)
+            else:
+                raise RuntimeError(f"Could not generate wallet after {max_retries} attempts due to repeated errors")
         return dbw.name
 
     def get_dump(self):
