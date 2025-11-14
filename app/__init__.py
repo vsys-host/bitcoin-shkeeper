@@ -18,6 +18,11 @@ def wait_for_db(engine, timeout=30):
 def create_app():
     app = Flask(__name__)
     app.config.from_mapping(config)
+    from .models import (
+        DbWallet, DbKey, DbTransaction, DbTransactionInput, DbTransactionOutput,
+        DbCacheTransaction, DbCacheTransactionNode, DbCacheAddress,
+        DbCacheBlock, DbCacheVars
+    )
     from . import utils
     # utils.init_wallet(app)
 
