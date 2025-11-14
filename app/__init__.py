@@ -18,30 +18,32 @@ def wait_for_db(engine, timeout=30):
 def create_app():
     app = Flask(__name__)
     app.config.from_mapping(config)
+
     from .models import (
         DbWallet, DbKey, DbTransaction, DbTransactionInput, DbTransactionOutput,
         DbCacheTransaction, DbCacheTransactionNode, DbCacheAddress,
         DbCacheBlock, DbCacheVars
     )
     from . import utils
-    # utils.init_wallet(app)
-
     app.url_map.converters['decimal'] = utils.DecimalConverter
     from .api import api as api_blueprint
     from .api import metrics_blueprint
     app.register_blueprint(api_blueprint)
     app.register_blueprint(metrics_blueprint)
-    
     from .tasks import walletnotify_shkeeper
 
     db.init_app(app)
     with app.app_context():
         wait_for_db(db.engine)
-        try:
-            db.create_all()
-        except OperationalError as e:
-            if "already exists" in str(e):
-                pass
-            else:
-                raise
+        DbWallet.__table__.create(bind=db.engine, checkfirst=True)
+        DbTransaction.__table__.create(bind=db.engine, checkfirst=True)
+        DbKey.__table__.create(bind=db.engine, checkfirst=True)
+        DbTransactionInput.__table__.create(bind=db.engine, checkfirst=True)
+        DbTransactionOutput.__table__.create(bind=db.engine, checkfirst=True)
+        DbCacheTransaction.__table__.create(bind=db.engine, checkfirst=True)
+        DbCacheTransactionNode.__table__.create(bind=db.engine, checkfirst=True)
+        DbCacheAddress.__table__.create(bind=db.engine, checkfirst=True)
+        DbCacheBlock.__table__.create(bind=db.engine, checkfirst=True)
+        DbCacheVars.__table__.create(bind=db.engine, checkfirst=True)
+
     return app
