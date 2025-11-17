@@ -35,6 +35,8 @@ class BTCWallet():
         details = []
 
         for out in tx.outputs:
+            if out.key_id is None:
+              continue
             addr = out.address
             spent = getattr(out, 'spent', False)
             if not spent:
