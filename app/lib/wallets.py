@@ -7,6 +7,7 @@ import pickle
 import base58
 from sqlalchemy.orm import joinedload, sessionmaker
 from datetime import timedelta
+import requests as rq
 from app.models import *
 from app.config import config
 from app.lib.encoding import *
@@ -46,10 +47,22 @@ def get_all_key_ids(session, wallet_id, account_id=None, witness_type=None, netw
     q = q.order_by(asc(DbKey.id))
     return [kid for (kid,) in q.all()]
 
-def notify_shkeeper(symbol: str, txid: str):
-    from app.tasks import walletnotify_shkeeper
-    walletnotify_shkeeper.delay(symbol, txid)
-
+def notify_shkeeper(symbol, txid):
+    _logger.warning(f"Notifying about {symbol}/{txid}")
+    while True:
+        try:
+            r = rq.post(
+                    f'http://{config["SHKEEPER_HOST"]}/api/v1/walletnotify/{symbol}/{txid}',
+                    headers={'X-Shkeeper-Backend-Key': config['SHKEEPER_KEY']}).json()
+            if r["status"] == "success":
+                _logger.warning(f"The notification about {symbol}/{txid} was successful")
+                return True
+            else:
+                _logger.warning(f"Failed to notify SHKeeper about {symbol}/{txid}, received response: {r}")
+                time.sleep(5)
+        except Exception as e:
+            _logger.warning(f'Shkeeper notification failed for {symbol}/{txid}: {e}')
+            time.sleep(10)
 
 @contextmanager
 def log_time(label):
@@ -731,7 +744,7 @@ class WalletTransaction(Transaction):
         if commit:
             self.hdwallet._commit()
         _logger.debug("finished store outputs")
-        return txidn, should_notify
+        return self.txid, should_notify
 
     def info(self):
         Transaction.info(self)

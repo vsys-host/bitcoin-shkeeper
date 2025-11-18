@@ -30,7 +30,6 @@ def create_app():
     from .api import metrics_blueprint
     app.register_blueprint(api_blueprint)
     app.register_blueprint(metrics_blueprint)
-    from .tasks import walletnotify_shkeeper
 
     db.init_app(app)
     with app.app_context():
