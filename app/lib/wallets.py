@@ -7,6 +7,7 @@ import pickle
 import base58
 from sqlalchemy.orm import joinedload, sessionmaker
 from datetime import timedelta
+import requests as rq
 from app.models import *
 from app.config import config
 from app.lib.encoding import *
@@ -46,10 +47,22 @@ def get_all_key_ids(session, wallet_id, account_id=None, witness_type=None, netw
     q = q.order_by(asc(DbKey.id))
     return [kid for (kid,) in q.all()]
 
-def notify_shkeeper(symbol: str, txid: str):
-    from app.tasks import walletnotify_shkeeper
-    walletnotify_shkeeper.delay(symbol, txid)
-
+def notify_shkeeper(symbol, txid):
+    _logger.warning(f"Notifying about {symbol}/{txid}")
+    while True:
+        try:
+            r = rq.post(
+                    f'http://{config["SHKEEPER_HOST"]}/api/v1/walletnotify/{symbol}/{txid}',
+                    headers={'X-Shkeeper-Backend-Key': config['SHKEEPER_KEY']}).json()
+            if r["status"] == "success":
+                _logger.warning(f"The notification about {symbol}/{txid} was successful")
+                return True
+            else:
+                _logger.warning(f"Failed to notify SHKeeper about {symbol}/{txid}, received response: {r}")
+                time.sleep(5)
+        except Exception as e:
+            _logger.warning(f'Shkeeper notification failed for {symbol}/{txid}: {e}')
+            time.sleep(10)
 
 @contextmanager
 def log_time(label):
@@ -576,6 +589,7 @@ class WalletTransaction(Transaction):
                 db_tx.wallet_id = self.hdwallet.wallet_id
 
         _logger.debug("start store receive DbTransaction")
+        should_notify = False
         if not db_tx:
             db_tx = DbTransaction(
                 wallet_id=self.hdwallet.wallet_id,
@@ -599,7 +613,7 @@ class WalletTransaction(Transaction):
                 index=self.index
             )
             sess.add(db_tx)
-            notify_shkeeper('BTC', self.txid)
+            should_notify = True
         else:
             # --- Update existing transaction ---
             db_tx.block_height = self.block_height or db_tx.block_height
@@ -730,8 +744,7 @@ class WalletTransaction(Transaction):
         if commit:
             self.hdwallet._commit()
         _logger.debug("finished store outputs")
-
-        return txidn
+        return self.txid, should_notify
 
     def info(self):
         Transaction.info(self)
@@ -1851,12 +1864,14 @@ class Wallet(object):
                 txs.append(tx)
 
         utxo_set = set()
+        txids_to_notify = set()
         for t in txs:
             wt = WalletTransaction.from_transaction(self, t)
-            wt.store(commit=False)  # Don't commit for each transaction
+            txid, is_new = wt.store(commit=False)  # Don't commit for each transaction
             utxos = [(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.inputs]
             utxo_set.update(utxos)
-
+            if is_new:
+                txids_to_notify.add(txid)
         # Batch update UTXOs instead of N queries
         if utxo_set:
             utxo_list = [(bytes.fromhex(txid), n) for txid, n in utxo_set]
@@ -1878,6 +1893,8 @@ class Wallet(object):
             self.session.execute(sql, sql_params)
 
         self._commit()
+        for txid in txids_to_notify:
+            notify_shkeeper('BTC', txid)
         # self._balance_update(account_id=account_id, network=network, key_id=key_id)
 
     def transactions_update(self, account_id=None, used=None, network=None, key_id=None, depth=None, change=None,
@@ -1929,13 +1946,16 @@ class Wallet(object):
         unique_txs = list({t.txid: t for t in txs}.values())
 
         utxo_set = set()
+        txids_to_notify = set()
         with log_time("txs unique_txs create from_transaction"):
             for t in unique_txs:
                 wt = WalletTransaction.from_transaction(self, t)
                 with log_time("transaction store"):
-                    wt.store(commit=False)
+                    txid, is_new = wt.store(commit=False)
                 utxos = [(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.inputs]
                 utxo_set.update(utxos)
+                if is_new:
+                  txids_to_notify.add(txid)
         with log_time("update transaction_outputs"):
             if utxo_set:
                 utxo_list = [(bytes.fromhex(txid), n) for txid, n in utxo_set]
@@ -1959,6 +1979,8 @@ class Wallet(object):
 
         self.last_updated = last_updated
         self._commit()
+        for txid in txids_to_notify:
+            notify_shkeeper('BTC', txid)
 
         return len(txs)
 

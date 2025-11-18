@@ -42,22 +42,6 @@ def post_payout_results(data, symbol):
             logger.exception(f'Shkeeper payout notification failed: {e}')
             time.sleep(10)
 
-
-@celery.task()
-def walletnotify_shkeeper(symbol, txid):
-    logger.exception(f"walletnotify_shkeeper {txid}")
-    while True:
-        try:
-            r = rq.post(
-                    f'http://{config["SHKEEPER_HOST"]}/api/v1/walletnotify/{symbol}/{txid}',
-                    headers={'X-Shkeeper-Backend-Key': config['SHKEEPER_KEY']}
-                )
-            return r
-        except Exception as e:
-            logger.warning(f'Shkeeper notification failed for {symbol}/{txid}: {e}')
-            time.sleep(10)
-
-
 @celery.task()
 def create_wallet(self):
     print("job generate_address")
