@@ -576,6 +576,7 @@ class WalletTransaction(Transaction):
                 db_tx.wallet_id = self.hdwallet.wallet_id
 
         _logger.debug("start store receive DbTransaction")
+        should_notify = False
         if not db_tx:
             db_tx = DbTransaction(
                 wallet_id=self.hdwallet.wallet_id,
@@ -599,7 +600,7 @@ class WalletTransaction(Transaction):
                 index=self.index
             )
             sess.add(db_tx)
-            notify_shkeeper('BTC', self.txid)
+            should_notify = True
         else:
             # --- Update existing transaction ---
             db_tx.block_height = self.block_height or db_tx.block_height
@@ -730,7 +731,9 @@ class WalletTransaction(Transaction):
         if commit:
             self.hdwallet._commit()
         _logger.debug("finished store outputs")
-
+        if should_notify:
+            _logger.warning(f"notify shkeeper {self.txid}")
+            notify_shkeeper('BTC', self.txid)
         return txidn
 
     def info(self):
