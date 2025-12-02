@@ -254,11 +254,12 @@ class BTCWallet():
         for payout in payout_list:
             satoshi_amount = decimal_value_to_satoshi(payout['amount'])
 
-            tx = self.current_wallet().send_to(payout['dest'], satoshi_amount, fee_per_kb=network_fee_per_kb)
+            address = payout.get('dest') or payout.get('destination')
+            tx = self.current_wallet().send_to(address, satoshi_amount, fee_per_kb=network_fee_per_kb)
             try:
                 tx.send()
                 payout_results.append({
-                    "dest": payout['dest'],
+                    "dest": address,
                     "amount": float(payout['amount']),
                     "status": "success",
                     "txids": [str(tx)],
@@ -266,7 +267,7 @@ class BTCWallet():
             except Exception as e:
                 logger.warning(f"Submit failed: {e}")
                 payout_results.append({
-                    "dest": payout['dest'],
+                    "dest": address,
                     "amount": float(payout['amount']),
                     "status": "error",
                     "error": str(e),

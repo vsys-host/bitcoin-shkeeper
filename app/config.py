@@ -2,8 +2,6 @@ import os
 from decimal import Decimal
 
 config = {
-    # 'FULLNODE_URL': os.environ.get('FULLNODE_URL', 'http://bitcoinuser:bitcoinpass@195.66.213.33:18443/'), # regtest
-    # 'FULLNODE_URL': os.environ.get('FULLNODE_URL', 'http://bitcoinuser:bitcoinpass@195.66.213.33:18332/'), # testnet
     'FULLNODE_URL': os.environ.get('FULLNODE_URL', 'http://shkeeper:shkeeper@fullnode.bitcoin.shkeeper.io:8332'),
     'FULLNODE_TIMEOUT': os.environ.get('FULLNODE_TIMEOUT', '60'),
     'CHECK_NEW_BLOCK_EVERY_SECONDS': os.environ.get('CHECK_NEW_BLOCK_EVERY_SECONDS',60),
