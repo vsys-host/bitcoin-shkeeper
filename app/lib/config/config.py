@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 # General defaults
 TYPE_TEXT = str
 TYPE_INT = int
-LOGLEVEL = 'WARNING'
 
 
 # File locations
@@ -20,14 +19,9 @@ BCL_DATA_DIR = ''
 BCL_DATABASE_DIR = ''
 DEFAULT_DATABASE = None
 DEFAULT_DATABASE_CACHE = None
-BCL_LOG_FILE = ''
 
 # Main
-ENABLE_BITCOINLIB_LOGGING = True
 ALLOW_DATABASE_THREADS = None
-DATABASE_ENCRYPTION_ENABLED = False
-DB_FIELD_ENCRYPTION_KEY = None
-DB_FIELD_ENCRYPTION_PASSWORD = None
 
 # Services
 TIMEOUT_REQUESTS = 5
@@ -98,7 +92,7 @@ BIP38_EC_MULTIPLIED_PRIVATE_KEY_PREFIX = b'\x01\x43'
 BIP38_CONFIRMATION_CODE_PREFIX = b'\x64\x3b\xf6\xa8\x9a'
 
 # Networks
-DEFAULT_NETWORK = config['BTC_NETWORK']
+DEFAULT_NETWORK = config['COIN_NETWORK']
 NETWORK_DENOMINATORS = {  # source: https://en.bitcoin.it/wiki/Units, https://en.wikipedia.org/wiki/Metric_prefix
     0.00000000000001: 'µsat',
     0.00000000001: 'msat',
@@ -181,82 +175,4 @@ WALLET_KEY_STRUCTURES = [
         'description': 'Segwit multisig wallet using native segwit pay-to-wallet-public-key-hash scripts',
         'key_path': KEY_PATH_P2WPKH
     },
-    # {
-    #     'purpose': 86,
-    #     'script_type': 'p2tr',
-    #     'witness_type': 'segwit',
-    #     'multisig': False,
-    #     'encoding': 'bech32',
-    #     'description': 'Taproot single key wallet using P2TR transactions',
-    #     'key_path': ["m", "purpose'", "coin_type'", "account'", "change", "address_index"]
-    # },
 ]
-
-def read_config():
-    config = configparser.ConfigParser()
-
-    def config_get(section, var, fallback, is_boolean=False):
-        try:
-            if is_boolean:
-                val = config.getboolean(section, var, fallback=fallback)
-            else:
-                val = config.get(section, var, fallback=fallback)
-            return val
-        except Exception:
-            return fallback
-
-    global BCL_INSTALL_DIR, BCL_DATABASE_DIR, DEFAULT_DATABASE, BCL_DATA_DIR
-    global ALLOW_DATABASE_THREADS, DEFAULT_DATABASE_CACHE
-    global BCL_LOG_FILE, LOGLEVEL, ENABLE_BITCOINLIB_LOGGING
-    global TIMEOUT_REQUESTS, DEFAULT_LANGUAGE, DEFAULT_NETWORK, DEFAULT_WITNESS_TYPE
-    global SERVICE_CACHING_ENABLED, DATABASE_ENCRYPTION_ENABLED, DB_FIELD_ENCRYPTION_KEY, DB_FIELD_ENCRYPTION_PASSWORD
-    global SERVICE_MAX_ERRORS, BLOCK_COUNT_CACHE_TIME, MAX_TRANSACTIONS
-
-
-    env_data_dir = os.environ.get('BCL_DATA_DIR')
-    BCL_DATA_DIR = Path('~/.lib').expanduser() if not env_data_dir else Path(env_data_dir).expanduser()
-    config_file = Path(BCL_DATA_DIR, 'config.ini')
-    data = config.read(str(config_file))
-    ALLOW_DATABASE_THREADS = config_get("common", "allow_database_threads", fallback=True, is_boolean=True)
-    SERVICE_CACHING_ENABLED = config_get('common', 'service_caching_enabled', fallback=True, is_boolean=True)
-    DATABASE_ENCRYPTION_ENABLED = config_get('common', 'database_encryption_enabled', fallback=False, is_boolean=True)
-    DB_FIELD_ENCRYPTION_KEY = os.environ.get('DB_FIELD_ENCRYPTION_KEY')
-    DB_FIELD_ENCRYPTION_PASSWORD = os.environ.get('DB_FIELD_ENCRYPTION_PASSWORD')
-
-    # Log settings
-    ENABLE_BITCOINLIB_LOGGING = config_get("logs", "enable_bitcoinlib_logging", fallback=True, is_boolean=True)
-    BCL_LOG_FILE = Path(BCL_DATA_DIR, config_get('logs', 'log_file', fallback='lib.log'))
-    BCL_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LOGLEVEL = config_get('logs', 'loglevel', fallback=LOGLEVEL)
-
-    # Service settings
-    TIMEOUT_REQUESTS = int(config_get('common', 'timeout_requests', fallback=TIMEOUT_REQUESTS))
-    SERVICE_MAX_ERRORS = int(config_get('common', 'service_max_errors', fallback=SERVICE_MAX_ERRORS))
-    MAX_TRANSACTIONS = int(config_get('common', 'max_transactions', fallback=MAX_TRANSACTIONS))
-    BLOCK_COUNT_CACHE_TIME = int(config_get('common', 'block_count_cache_time', fallback=BLOCK_COUNT_CACHE_TIME))
-
-    # Other settings
-    DEFAULT_LANGUAGE = config_get('common', 'default_language', fallback=DEFAULT_LANGUAGE)
-    DEFAULT_NETWORK = config_get('common', 'default_network', fallback=DEFAULT_NETWORK)
-    DEFAULT_WITNESS_TYPE = config_get('common', 'default_witness_type', fallback=DEFAULT_WITNESS_TYPE)
-
-    if not data:
-        return False
-    return True
-
-
-# Copy data and settings to default settings directory if install.log is not found
-def initialize_lib():
-    global BCL_INSTALL_DIR, BCL_DATA_DIR
- 
-    # Copy data and settings file
-    from shutil import copyfile
-    for file in Path(BCL_INSTALL_DIR, 'data').iterdir():
-        if file.suffix not in ['.ini', '.json']:
-            continue
-        copyfile(str(file), Path(BCL_DATA_DIR, file.name))
-
-
-# Initialize library
-read_config()
-initialize_lib()
