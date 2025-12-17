@@ -23,8 +23,8 @@ RUN wget https://bitcoincore.org/bin/bitcoin-core-27.0/bitcoin-27.0-x86_64-linux
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
 
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 

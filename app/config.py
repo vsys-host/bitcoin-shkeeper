@@ -2,8 +2,6 @@ import os
 from decimal import Decimal
 
 config = {
-    # 'FULLNODE_URL': os.environ.get('FULLNODE_URL', 'http://bitcoinuser:bitcoinpass@195.66.213.33:18443/'), # regtest
-    # 'FULLNODE_URL': os.environ.get('FULLNODE_URL', 'http://bitcoinuser:bitcoinpass@195.66.213.33:18332/'), # testnet
     'FULLNODE_URL': os.environ.get('FULLNODE_URL', 'http://shkeeper:shkeeper@fullnode.bitcoin.shkeeper.io:8332'),
     'FULLNODE_TIMEOUT': os.environ.get('FULLNODE_TIMEOUT', '60'),
     'CHECK_NEW_BLOCK_EVERY_SECONDS': os.environ.get('CHECK_NEW_BLOCK_EVERY_SECONDS',60),
@@ -29,6 +27,8 @@ config = {
     'COUNT_ADDRESSES': os.environ.get('COUNT_ADDRESSES', "10000"),
     'COUNT_RECEIVED_TRANSACTIONS': os.environ.get('COUNT_RECEIVED_TRANSACTIONS', "1000"),
     'MIN_CONFIRMS': os.environ.get('MIN_CONFIRMS', "1"),
+    'WALLET_DAT_PATH': os.environ.get('WALLET_DAT_PATH', '/root/.bitcoin/shkeeper/wallet.dat'),
+    'TIME_WALLET_CREATED': os.environ.get('TIME_WALLET_CREATED'),
     'LEDGERS_TO_WAIT': os.environ.get('LEDGERS_TO_WAIT', "100"), # used to calc last_ledger_sequence for payments
     'BTC_NETWORK': os.environ.get('BTC_NETWORK', 'main'),  # main, testnet, regtest
 }

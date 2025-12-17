@@ -280,6 +280,10 @@ class BitcoindClient(BaseClient):
         bcinfo = self.proxy.getblockchaininfo()
         return bcinfo['blocks']
 
+    def getblockchaininfo(self):
+        blockchaininfo = self.proxy.getblockchaininfo()
+        return blockchaininfo
+
     def synced_status(self):
         bcinfo = self.proxy.getblockchaininfo()
         not_synced_block = bcinfo['headers'] - bcinfo['blocks']

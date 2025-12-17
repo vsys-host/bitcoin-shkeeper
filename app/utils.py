@@ -1,11 +1,27 @@
+import os
 from decimal import Decimal
 from typing import Literal
 from functools import wraps
-from flask import current_app
+from flask import current_app, jsonify
 from werkzeug.routing import BaseConverter
 from .config import config
 from .logging import logger
+from functools import wraps
+from app.wallet import BTCWallet
 
+def block_during_migration(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        wallet = BTCWallet().wallet()
+
+        if os.path.isfile(config['WALLET_DAT_PATH']) and not wallet.migrated:
+            logger.warning('Blocked during migration')
+            return jsonify({
+                'status': 'error',
+                'message': 'Blocked during migration'
+            }), 423
+        return fn(*args, **kwargs)
+    return wrapper
 
 class DecimalConverter(BaseConverter):
 

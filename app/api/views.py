@@ -5,8 +5,10 @@ from . import api
 from app import create_app
 from app.lib.values import Value
 from app.wallet import BTCWallet
+from app.utils import block_during_migration
 
 @api.post("/generate-address")
+@block_during_migration
 def generate_new_address():   
     w = BTCWallet() 
     new_address = w.generate_address()
@@ -20,6 +22,7 @@ def get_balance():
     return {'status': 'success', 'balance': balance}
 
 @api.post('/status')
+@block_during_migration
 def get_status():
     w = BTCWallet()
     delta_blocks = w.delta_synced_block()
