@@ -30,8 +30,8 @@ def get_transaction(txid):
     w = BTCWallet()
     transaction = w.get_transaction(txid)
     if not transaction:
-        logger.error(f"Cannt recdeive outputs {txid}: {transaction}")
-        return {'error': 'Invalid transaction'}, 400
+        logger.error(f"Cannot receive outputs {txid}: {transaction}")
+        return []
 
     related_transactions = []
     confirmations = transaction.get("confirmations") or 1
@@ -51,7 +51,7 @@ def get_transaction(txid):
     # return related_transactions
     if not related_transactions:
         logger.warning(f"txid {txid} is not related to any known address for {g.symbol}")
-        return {'status': 'error', 'msg': 'txid is not related to any known address'}
+        return []
 
     logger.warning(related_transactions)
     return related_transactions
