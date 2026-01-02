@@ -6,7 +6,6 @@ from app.lib.transactions import Transaction
 from app.lib.networks import Network
 from app.config import config
 from app.models import db, DbCacheVars
-import time
 
 PROVIDERNAME = 'bitcoind'
 

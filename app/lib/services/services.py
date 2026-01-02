@@ -45,6 +45,11 @@ class Service(object):
         self.network = network
         if not isinstance(network, Network):
             self.network = Network(network)
+        if COIN not in PROVIDER_MAP:
+            raise ServiceError(
+                f"Unsupported coin configured: '{COIN}'. "
+                f"Supported coins are: {', '.join(PROVIDER_MAP.keys())}"
+            )
 
         provider_key = PROVIDER_MAP[COIN]["key"]
         client_class = PROVIDER_MAP[COIN]["client_class"]

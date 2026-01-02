@@ -226,8 +226,9 @@ class CoinWallet():
         payout_results = []
 
         for payout in payout_list:
-            if not self.is_valid_address(payout['dest']):
-                raise Exception(f"Address {payout['dest']} is not valid address")
+            address = payout.get('dest') or payout.get('destination')
+            if not self.is_valid_address(address):
+                raise Exception(f"Address {address} is not valid address")
 
         should_pay = decimal.Decimal('0')
 

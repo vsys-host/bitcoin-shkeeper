@@ -133,7 +133,7 @@
         "priority": 0
       }
   },
-  "LTC": { 
+  "LTC": {
     "lib_test":
     {
       "description": "Shkeeper Test",
@@ -169,30 +169,30 @@
     },
     "main":
     {
-      "description": "Litcoin",
-      "currency_name": "litcoin",
-      "currency_name_plural": "litcoins",
+      "description": "Litecoin",
+      "currency_name": "litecoin",
+      "currency_name_plural": "litecoins",
       "currency_symbol": "LTC",
       "currency_code": "LTC",
-      "prefix_address": "00",
+      "prefix_address": "30",
       "prefix_address_p2sh": "05",
       "prefix_bech32": "ltc",
-      "prefix_wif": "80",
+      "prefix_wif": "B0",
       "prefixes_wif": [
-        ["0488B21E", "xpub", "public",  false, "legacy",      "p2pkh"],
-        ["0488B21E", "xpub", "public",  true,  "legacy",      "p2sh"],
-        ["0488ADE4", "xprv", "private", false, "legacy",      "p2pkh"],
-        ["0488ADE4", "xprv", "private", true,  "legacy",      "p2sh"],
-        ["049D7CB2", "ypub", "public",  false, "p2sh-segwit", "p2sh_p2wpkh"],
-        ["0295B43F", "Ypub", "public",  true,  "p2sh-segwit", "p2sh_p2wsh"],
+        ["0488B21E", "xpub", "public", false, "legacy", "p2pkh"],
+        ["0488B21E", "xpub", "public", true, "legacy", "p2sh"],
+        ["0488ADE4", "xprv", "private", false, "legacy", "p2pkh"],
+        ["0488ADE4", "xprv", "private", true, "legacy", "p2sh"],
+        ["049D7CB2", "ypub", "public", false, "p2sh-segwit", "p2sh_p2wpkh"],
+        ["0295B43F", "Ypub", "public", true, "p2sh-segwit", "p2sh_p2wsh"],
         ["049D7878", "yprv", "private", false, "p2sh-segwit", "p2sh_p2wpkh"],
-        ["0295B005", "Yprv", "private", true,  "p2sh-segwit", "p2sh_p2wsh"],
-        ["04B24746", "zpub", "public",  false, "segwit",      "p2wpkh"],
-        ["02AA7ED3", "Zpub", "public",  true,  "segwit",      "p2wsh"],
-        ["04B2430C", "zprv", "private", false, "segwit",      "p2wpkh"],
-        ["02AA7A99", "Zprv", "private", true,  "segwit",      "p2wsh"]
+        ["0295B005", "Yprv", "private", true, "p2sh-segwit", "p2sh_p2wsh"],
+        ["04B24746", "zpub", "public", false, "segwit", "p2wpkh"],
+        ["02AA7ED3", "Zpub", "public", true, "segwit", "p2wsh"],
+        ["04B2430C", "zprv", "private", false, "segwit", "p2wpkh"],
+        ["02AA7A99", "Zprv", "private", true, "segwit", "p2wsh"]
       ],
-      "bip44_cointype": 0,
+      "bip44_cointype": 2,
       "denominator": 0.00000001,
       "dust_amount": 1000,
       "fee_default": null,
@@ -212,8 +212,8 @@
       "prefix_bech32": "ltc",
       "prefix_wif": "B0",
       "prefixes_wif": [
-        ["019DA462", "vasa", "public",  false, "legacy",      "p2pkh"],
-        ["019DA462", "vasa", "public",  true,  "legacy",      "p2sh"],
+        ["019DA462", "test", "public",  false, "legacy",      "p2pkh"],
+        ["019DA462", "test", "public",  true,  "legacy",      "p2sh"],
         ["019D9CFE", "xprv", "private", false, "legacy",      "p2pkh"],
         ["019D9CFE", "xprv", "private", true,  "legacy",      "p2sh"],
         ["01B26EF6", "Mtub", "public",  false, "p2sh-segwit", "p2sh_p2wpkh"],
@@ -240,10 +240,10 @@
       "currency_name_plural": "litecoins",
       "currency_symbol": "LTC",
       "currency_code": "LTC",
-      "prefix_address": "30",
-      "prefix_address_p2sh": "05",
+      "prefix_address": "6F",
+      "prefix_address_p2sh": "3A",
       "prefix_bech32": "ltc",
-      "prefix_wif": "B0",
+      "prefix_wif": "EF",
       "prefixes_wif": [
         ["019DA462", "vasa", "public",  false, "legacy",      "p2pkh"],
         ["019DA462", "vasa", "public",  true,  "legacy",      "p2sh"],

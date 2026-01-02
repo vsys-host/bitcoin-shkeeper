@@ -46,7 +46,7 @@ class BTCUtils:
         if address.lower().startswith(("bc1", "tb1")):
             return BTCUtils._validate_bech32(address)
         try:
-            decoded = base58.b58decode_check(address)
+            base58.b58decode_check(address)
             prefix = address[0]
             if prefix in ("1", "3", "m", "n", "2"):
                 return True
@@ -70,7 +70,7 @@ class LTCUtils:
         if address.lower().startswith(("ltc1", "tltc1")):
             return LTCUtils._validate_bech32(address)
         try:
-            decoded = base58.b58decode_check(address)
+            base58.b58decode_check(address)
             prefix = address[0]
             if prefix in LTCUtils.MAINNET_PREFIXES + LTCUtils.TESTNET_PREFIXES:
                 return True
@@ -80,5 +80,7 @@ class LTCUtils:
 
     @staticmethod
     def _validate_bech32(address: str) -> bool:
-        return bool(re.match(r'^(ltc1|tltc1)[0-9ac-hj-np-z]{11,71}$', address))
-
+        return bool(re.fullmatch(
+            r'(ltc1|tltc1)[023456789acdefghjklmnpqrstuvwxyz]{11,71}',
+            address.lower()
+        ))
