@@ -1,5 +1,3 @@
-# from decimal import Decimal
-
 from flask import g, request
 from flask import current_app as app
 from sqlalchemy.exc import PendingRollbackError
@@ -9,15 +7,16 @@ from app.celery_app import celery
 from app.lib.values import decimal_value_to_satoshi
 from ..tasks import make_multipayout 
 from . import api
-from ..wallet import BTCWallet
+from ..wallet import CoinWallet
 from ..config import config
 from ..logging import logger
+from app.config import COIN
 
 
 @api.post('/calc-tx-fee/<decimal:amount>')
 def calc_tx_fee(amount):
-    if g.symbol == "BTC":
-        w = BTCWallet()
+    if g.symbol == COIN:
+        w = CoinWallet()
         fee = w.get_transaction_price()
         return {'accounts_num': 1, 'fee': float(fee), 'fee_satoshi': decimal_value_to_satoshi(fee) }
     else:
@@ -43,18 +42,18 @@ def multipayout():
         if transfer['amount'] <= 0:
             raise Exception(f"Payout amount should be a positive number: {transfer}")
 
-    if g.symbol == 'BTC':
+    if g.symbol == COIN:
         task = (make_multipayout.s(g.symbol, payout_list, decimal.Decimal(config['NETWORK_FEE']))).apply_async()
         return{'task_id': task.id}
     else:
         raise Exception(f"{g.symbol} is not defined in config, cannot make payout")
     pass
-    
+
 @api.post('/payout/<to>/<decimal:amount>/<fee>')
 def payout(to, amount, fee):
     logger.warning(f'starting payout {amount}, to {to}')
     payout_list = [{ "dest": to, "amount": amount }]
-    if g.symbol == 'BTC':
+    if g.symbol == COIN:
         payout_list = [{ "dest": to, "amount": amount }]
         task = (make_multipayout.s(g.symbol, payout_list, decimal.Decimal(fee) if fee else decimal.Decimal(config['NETWORK_FEE']))).apply_async()
         return {'task_id': task.id}

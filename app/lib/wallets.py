@@ -9,7 +9,7 @@ from sqlalchemy.orm import joinedload, sessionmaker
 from datetime import timedelta
 import requests as rq
 from app.models import *
-from app.config import config
+from app.config import config, COIN
 from app.lib.encoding import *
 from app.lib.keys import Address, BKeyError, HDKey, check_network_and_key, path_expand
 from app.lib.networks import Network
@@ -1043,7 +1043,7 @@ class Wallet(object):
                 account_id = acckey.account_id
             else:
                 account_id = 0  
-        return config['BTC_NETWORK'], 0, acckey
+        return config['COIN_NETWORK'], 0, acckey
 
     @property
     def default_account_id(self):
@@ -1072,7 +1072,7 @@ class Wallet(object):
         return self._name
 
     def current_index_path(self):
-        return 0 if config['BTC_NETWORK'] == 'main' else 1
+        return 0 if config['COIN_NETWORK'] == 'main' else 1
 
     @name.setter
     def name(self, value):
@@ -1243,7 +1243,6 @@ class Wallet(object):
         _logger.warning("⚡ SCAN STARTED ⚡")
         _logger.warning(f"BLOCK: {block}")
         start_time = time.time()
-
         txs_list = srv.getblocktransactions(block)
         txs = txs_list.get('tx', [])
         total_txs = len(txs)
@@ -1304,7 +1303,7 @@ class Wallet(object):
 
         MAX_RETRIES = 3
         RETRY_DELAY = 2
-        THREADS = 8
+        THREADS = config['EVENTS_MAX_THREADS_NUMBER']
 
         while True:
             n_highest_updated = 0
@@ -1894,7 +1893,7 @@ class Wallet(object):
 
         self._commit()
         for txid in txids_to_notify:
-            notify_shkeeper('BTC', txid)
+            notify_shkeeper(COIN, txid)
         # self._balance_update(account_id=account_id, network=network, key_id=key_id)
 
     def transactions_update(self, account_id=None, used=None, network=None, key_id=None, depth=None, change=None,
@@ -1980,7 +1979,7 @@ class Wallet(object):
         self.last_updated = last_updated
         self._commit()
         for txid in txids_to_notify:
-            notify_shkeeper('BTC', txid)
+            notify_shkeeper(COIN, txid)
 
         return len(txs)
 

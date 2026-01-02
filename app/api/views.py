@@ -4,30 +4,30 @@ from app.config import config
 from . import api
 from app import create_app
 from app.lib.values import Value
-from app.wallet import BTCWallet
+from app.wallet import CoinWallet
 
 @api.post("/generate-address")
-def generate_new_address():   
-    w = BTCWallet() 
+def generate_new_address():
+    w = CoinWallet()
     new_address = w.generate_address()
     logger.warning(new_address)
     return {'status': 'success', 'address': new_address}
 
 @api.post('/balance')
 def get_balance():
-    w = BTCWallet()
+    w = CoinWallet()
     balance = w.get_deposit_account_balance()
     return {'status': 'success', 'balance': balance}
 
 @api.post('/status')
 def get_status():
-    w = BTCWallet()
+    w = CoinWallet()
     delta_blocks = w.delta_synced_block()
     return {'status': 'success', 'delta_blocks': delta_blocks}
 
 @api.post('/transaction/<txid>')
 def get_transaction(txid):
-    w = BTCWallet()
+    w = CoinWallet()
     transaction = w.get_transaction(txid)
     if not transaction:
         logger.error(f"Cannot receive outputs {txid}: {transaction}")
@@ -37,8 +37,6 @@ def get_transaction(txid):
     confirmations = transaction.get("confirmations") or 1
     for detail in transaction.get("details", []):
         address = detail.get("address")
-        # if address == w.get_fee_deposit_account():
-        #     continue
         amount = detail.get('amount', 0)
         category = detail.get("category")
         related_transactions.append([
@@ -58,17 +56,16 @@ def get_transaction(txid):
 
 @api.post('/dump')
 def dump():
-    w = BTCWallet()
+    w = CoinWallet()
     all_wallets = w.get_dump()
     return all_wallets
 
 @api.post('/fee-deposit-account')
 def get_fee_deposit_account():
-    # w = BTCWallet()
     return {'account': "", 'balance': 0}
 
 @api.post('/get_all_addresses')
 def get_all_addresses():
-    w = BTCWallet()
+    w = CoinWallet()
     all_addresses_list = w.get_all_accounts()
     return all_addresses_list

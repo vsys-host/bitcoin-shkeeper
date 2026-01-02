@@ -1,7 +1,7 @@
 import time
 from app.logging import logger
-from app.config import config
-from app.wallet import BTCWallet
+from app.config import config, COIN
+from app.wallet import CoinWallet
 from app.tasks import migrate_wallet_task
 from app.models import DbCacheVars
 from app.lib.services.services import Service
@@ -13,16 +13,23 @@ import os
 def handle_event(transaction):        
     logger.info(f'new transaction: {transaction!r}')
 
+
+BASE_WALLET_PATHS = {
+    "BTC": "/root/.bitcoin/shkeeper/wallet.dat",
+    "LTC": "/root/.litecoin/shkeeper/wallet.dat",
+    "DOGE": "/root/.dogecoin/shkeeper/wallet.dat",
+}
+
 def log_loop():
-    btc_wallet = BTCWallet()
-    wallet = btc_wallet.wallet()
+    coin_wallet = CoinWallet()
+    wallet = coin_wallet.wallet()
     while wallet is None:
         logger.warning("Wallet not loaded yet, waiting 10 seconds...")
         time.sleep(10)
-        wallet = btc_wallet.wallet()
+        wallet = coin_wallet.wallet()
     default_check_interval = int(config.get("CHECK_NEW_BLOCK_EVERY_SECONDS", 60))
-    srv = Service(config['BTC_NETWORK'])
-    latest_height = btc_wallet.get_last_block_number()
+    srv = Service(config['COIN_NETWORK'])
+    latest_height = coin_wallet.get_last_block_number()
     # value = 917515
     value = wallet.session.query(DbCacheVars.value).filter_by(
         varname='last_scanned_block',
@@ -44,7 +51,7 @@ def log_loop():
     else:
         current_height = int(value)
     while True:
-        latest_height = btc_wallet.get_last_block_number()
+        latest_height = coin_wallet.get_last_block_number()
         logger.info(f"latest_height {latest_height}")
         logger.info(f"current_height {current_height}")
         if latest_height > current_height:
@@ -78,11 +85,10 @@ def events_listener():
             while not get_account_password():
                 logger.warning("Encryption password not available yet, waiting 20 seconds...")
                 time.sleep(20)
-
-            btc_wallet = BTCWallet()
-            wallet = btc_wallet.wallet()
-
-            if os.path.isfile('/root/.bitcoin/shkeeper/wallet.dat') and not wallet.migrated:
+            coin_wallet = CoinWallet()
+            wallet = coin_wallet.wallet()
+            wallet_path = BASE_WALLET_PATHS.get(COIN)
+            if os.path.isfile(wallet_path) and not wallet.migrated:
                 logger.info("Wallet migration required, starting migrate_wallet_task...")
                 result = migrate_wallet_task.delay()
 
@@ -99,7 +105,7 @@ def events_listener():
                     logger.info("Migration still in progress... waiting 60s before next check")
                     time.sleep(60)
 
-                wallet = btc_wallet.wallet()
+                wallet = coin_wallet.wallet()
                 if not wallet.migrated:
                     logger.warning("Wallet still not marked as migrated, retrying later...")
                     time.sleep(60)

@@ -1,6 +1,6 @@
 import json
 from app.lib.encoding import *
-from app.config import config
+from app.config import config, COIN
 
 _logger = logging.getLogger(__name__)
 
@@ -12,9 +12,8 @@ class NetworkError(Exception):
     def __str__(self):
         return self.msg
 
-
 def _read_network_definitions():
-    fn = Path(BCL_DATA_DIR, 'networks.json')
+    fn = Path("app/lib/data", 'networks.json')
     f = fn.open('rb')
     try:
         network_definitions = json.loads(f.read())
@@ -25,7 +24,7 @@ def _read_network_definitions():
 
 
 NETWORK_DEFINITIONS = {
-    config["BTC_NETWORK"]: _read_network_definitions()[config["BTC_NETWORK"]]
+    config["COIN_NETWORK"]: _read_network_definitions()[COIN][config["COIN_NETWORK"]]
 }
 
 def _format_value(field, value):
@@ -40,7 +39,6 @@ def _format_value(field, value):
 def network_values_for(field):
     return list(dict.fromkeys([_format_value(field, nv[field]) for nv in NETWORK_DEFINITIONS.values()]))
 
-
 def network_by_value(field, value):
     nws = [(nv, NETWORK_DEFINITIONS[nv]['priority'])
            for nv in NETWORK_DEFINITIONS if NETWORK_DEFINITIONS[nv][field] == value]
@@ -53,12 +51,10 @@ def network_by_value(field, value):
                for nv in NETWORK_DEFINITIONS if NETWORK_DEFINITIONS[nv][field] == value]
     return [nw[0] for nw in sorted(nws, key=lambda x: x[1], reverse=True)]
 
-
 def network_defined(network):
     if network not in list(NETWORK_DEFINITIONS.keys()):
         return False
     return True
-
 
 def wif_prefix_search(wif, witness_type=None, network=None):
     key_hex = wif

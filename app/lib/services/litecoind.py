@@ -1,4 +1,3 @@
-import configparser
 from app.lib.main import *
 from app.lib.services.authproxy import AuthServiceProxy
 from app.lib.services.baseclient import BaseClient, ClientError
@@ -7,20 +6,20 @@ from app.lib.networks import Network
 from app.config import config
 from app.models import db, DbCacheVars
 
-PROVIDERNAME = 'bitcoind'
+PROVIDERNAME = 'litecoind'
 
 _logger = logging.getLogger(__name__)
 
-class BitcoindClient(BaseClient):
+class LitecoindClient(BaseClient):
     def __init__(self, network=config['COIN_NETWORK'], base_url='', denominator=100000000, *args):
         if isinstance(network, Network):
             network = network.name
         if not base_url:
-            raise ValueError("Please provide rpc connection url to bitcoind node")
+            raise ValueError("Please provide rpc connection url to litecoind node")
         wallet_name = '' if not len(args) > 6 else args[6]
         if wallet_name:
             base_url = base_url.replace("{wallet_name}", wallet_name)
-        _logger.info("Connect to bitcoind")
+        _logger.info("Connect to litecoind")
         self.proxy = AuthServiceProxy(base_url)
         super(self.__class__, self).__init__(network, PROVIDERNAME, base_url, denominator, *args)
 
@@ -30,7 +29,7 @@ class BitcoindClient(BaseClient):
             res = self.proxy.getaddressinfo(address)
             if not (res['ismine'] or res['iswatchonly']):
                 raise ClientError(
-                    "Address %s not found in bitcoind wallet, use 'importpubkey' or 'importaddress' to add "
+                    "Address %s not found in litecoind wallet, use 'importpubkey' or 'importaddress' to add "
                     "address to wallet." % address)
             txs_list = self.proxy.listunspent(0, 99999999, [address])
             for tx in txs_list:
@@ -45,7 +44,7 @@ class BitcoindClient(BaseClient):
         utxos = []
         res = self.proxy.getaddressinfo(address)
         if not (res['ismine'] or res['iswatchonly']):
-            raise ClientError("Address %s not found in bitcoind wallet, use 'importpubkey' or 'importaddress' to add "
+            raise ClientError("Address %s not found in litecoind wallet, use 'importpubkey' or 'importaddress' to add "
                               "address to wallet." % address)
 
         txs_list = self.proxy.listunspent(0, 9999999, [address])
@@ -181,21 +180,21 @@ class BitcoindClient(BaseClient):
         block_time = txs_list.get('time')
         confirmations = txs_list.get('confirmations')
 
-        for tx in txs_list['tx']:
+        for tx in txs_list.get('tx', []):
             tx_id = tx.get('txid')
             matched = False
 
             for vout in tx.get('vout', []):
-                addr = vout.get('scriptPubKey', {}).get('address')
-                if addr == address:
+                addrs = vout.get('scriptPubKey', {}).get('addresses', [])
+                if address in addrs:
                     matched = True
                     break
 
             if not matched:
                 for vin in tx.get('vin', []):
                     prevout = vin.get('prevout', {})
-                    addr = prevout.get('scriptPubKey', {}).get('address')
-                    if addr == address:
+                    addrs = prevout.get('scriptPubKey', {}).get('addresses', [])
+                    if address in addrs:
                         matched = True
                         break
 
@@ -213,22 +212,10 @@ class BitcoindClient(BaseClient):
 
         return txs
 
-
     def getblocktransactions(self, block_hash):
         _logger.warning("REQUEST getblocktransactions")
         txs_list = self.proxy.getblock(block_hash, 3)
         return txs_list
-
-    def importaddress(self, address):
-        res = self.proxy.importaddress(address, "", False)
-        return res
-
-    def loadwallet(self, wallet_name):
-       return self.proxy.loadwallet(wallet_name)
-
-    def createwallet(self, name):
-        res = self.proxy.createwallet(name, True, True, "", False, True)
-        return res
 
     def getblockcount(self):
         res = self.proxy.getblockcount()
@@ -248,14 +235,13 @@ class BitcoindClient(BaseClient):
             'txid': res,
             'response_dict': res
         }
-
     def estimatefee(self, blocks):
         pres = ''
         try:
             pres = self.proxy.estimatesmartfee(blocks)
             res = pres['feerate']
         except KeyError as e:
-            _logger.info("bitcoind error: %s, %s" % (e, pres))
+            _logger.info("litecoind error: %s, %s" % (e, pres))
             res = self.proxy.estimatefee(blocks)
         return int(res * self.units)
 

@@ -7,8 +7,9 @@ import requests as rq
 from .celery_app import celery
 from .config import config
 from .utils import skip_if_running
-from .wallet import BTCWallet
+from .wallet import CoinWallet
 from .logging import logger
+from app.config import COIN
 from app.migrate_addreses import migrate_addreses
 
 logger = get_task_logger(__name__)
@@ -19,8 +20,8 @@ def migrate_wallet_task():
 
 @celery.task()
 def make_multipayout(symbol, payout_list, fee):
-    if symbol == "BTC":
-        w = BTCWallet()
+    if symbol == COIN:
+        w = CoinWallet()
         logger.warning(f"Starting payout {payout_list}")
         payout_results = w.make_multipayout(payout_list, fee)
         post_payout_results.delay(payout_results, symbol)
@@ -45,27 +46,7 @@ def post_payout_results(data, symbol):
 @celery.task()
 def create_wallet(self):
     print("job generate_address")
-    w = BTCWallet()
+    w = CoinWallet()
     address = w.generate_address()
     return address
-
-# @celery.task(bind=True)
-# @skip_if_running
-# def drain_account(self, symbol):
-#     logger.warning(f"Start draining from account crypto {symbol}")
-#     # return False
-#     if symbol == "BTC":
-#         w = BTCWallet()
-#         # destination = w.get_fee_deposit_account()
-#         # results = w.drain_account(destination)
-#     else:
-#         raise Exception(f"Symbol is not in config")
-#     return {}
-
-# @celery.on_after_configure.connect
-# def setup_periodic_tasks(sender, **kwargs):
-#     # Update cached account balances
-#     # sender.add_periodic_task(int(config['UPDATE_BALANCES_EVERY_SECONDS']), refresh_balances.s())
-    
-
 

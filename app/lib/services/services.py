@@ -7,12 +7,27 @@ from app.lib import services
 from app.lib.networks import Network
 from app.lib.encoding import to_bytes, int_to_varbyteint, varstr
 from app.models import *
-from app.config import config
+from app.config import config, COIN
 from app.lib.transactions import Transaction, transaction_update_spents
 from app.lib.blocks import Block
 from app.lib.main import *
 
 _logger = logging.getLogger(__name__)
+
+PROVIDER_MAP = {
+    "BTC": {
+        "key": "bitcoind",
+        "client_class": "BitcoindClient",
+    },
+    "LTC": {
+        "key": "litecoind",
+        "client_class": "LitecoindClient",
+    },
+    # "DOGE": {
+    #     "key": "dogecoind",
+    #     "client_class": "DogecoindClient",
+    # },
+}
 
 class ServiceError(Exception):
     def __init__(self, msg=''):
@@ -22,7 +37,6 @@ class ServiceError(Exception):
     def __str__(self):
         return self.msg
 
-
 class Service(object):
     def __init__(self, network=DEFAULT_NETWORK, providers=None,
                  timeout=TIMEOUT_REQUESTS, cache_uri=None, exclude_providers=None,
@@ -31,20 +45,27 @@ class Service(object):
         self.network = network
         if not isinstance(network, Network):
             self.network = Network(network)
+        if COIN not in PROVIDER_MAP:
+            raise ServiceError(
+                f"Unsupported coin configured: '{COIN}'. "
+                f"Supported coins are: {', '.join(PROVIDER_MAP.keys())}"
+            )
+
+        provider_key = PROVIDER_MAP[COIN]["key"]
+        client_class = PROVIDER_MAP[COIN]["client_class"]
         custom_providers = {
-            "bitcoind": {
-                "provider": "bitcoind",
-                "network": config['BTC_NETWORK'],
-                "client_class": "BitcoindClient",
+            provider_key: {
+                "provider": provider_key,
+                "network": config['COIN_NETWORK'],
+                "client_class": client_class,
                 "provider_coin_id": "",
-                "url": f'{config["FULLNODE_URL"]}',
+                "url": config["FULLNODE_URL"],
                 "api_key": "",
                 "priority": 20,
                 "denominator": 100000000,
                 "network_overrides": None
             }
         }
-
         self.providers_defined = custom_providers
         provider_set = {self.providers_defined[x]['provider'] for x in self.providers_defined}
 
@@ -56,14 +77,14 @@ class Service(object):
             providers = [providers]
         for p in providers:
             if p not in provider_set:
-                raise ServiceError("Provider '%s' not found in provider definitions" % p)
+                raise ServiceError(f"Provider '{p}' not found in provider definitions")
 
         self.providers = {}
         if provider_name:
             if provider_name not in self.providers_defined:
-                raise ServiceError("Provider with name '%s' not found in provider definitions" % provider_name)
+                raise ServiceError(f"Provider with name '{provider_name}' not found in provider definitions")
             if self.providers_defined[provider_name]['network'] != self.network:
-                raise ServiceError("Network from provider '%s' is different than Service network" % provider_name)
+                raise ServiceError(f"Network from provider '{provider_name}' is different than Service network")
             self.providers.update({provider_name: self.providers_defined[provider_name]})
         else:
             for p in self.providers_defined:
@@ -76,10 +97,10 @@ class Service(object):
             del(self.providers[provider_key])
 
         if not self.providers:
-            raise ServiceError("No providers found for network %s" % network)
+            raise ServiceError(f"No providers found for network {network}")
+
         self.results = {}
         self.errors = {}
-        # self.resultcount = 0
         self.max_errors = max_errors
         self.complete = None
         self.timeout = timeout
@@ -92,7 +113,7 @@ class Service(object):
             self.cache = Cache(self.network)
         except Exception as e:
             self.cache = Cache(self.network)
-            _logger.warning("Could not connect to cache database. Error: %s" % e)
+            _logger.warning(f"Could not connect to cache database. Error: {e}")
         self.results_cache_n = 0
         self.strict = strict
         self.execution_time = None
@@ -102,7 +123,6 @@ class Service(object):
         self.results = {}
         self.errors = {}
         self.complete = None
-        # self.resultcount = 0
         self.execution_time = None
 
     def _provider_execute(self, method, *arguments, retries: int = 3, retry_delay: int = 2):
@@ -115,21 +135,11 @@ class Service(object):
         while attempt < retries:
             attempt += 1
             self._reset_results()
-            provider_lst = ["bitcoind"] # one provider
+            provider_lst = list(self.providers.keys())
 
             for sp in provider_lst:
                 try:
-                    provider_conf = {
-                        "provider": "bitcoind",
-                        "network": config['BTC_NETWORK'],
-                        "client_class": "BitcoindClient",
-                        "provider_coin_id": "",
-                        "url": f'{config["FULLNODE_URL"]}',
-                        "api_key": "",
-                        "priority": 20,
-                        "denominator": 100000000,
-                        "network_overrides": None
-                    }
+                    provider_conf = self.providers[sp]
                     client = getattr(services, provider_conf['provider'])
                     providerclient = getattr(client, provider_conf['client_class'])
 
@@ -157,7 +167,6 @@ class Service(object):
                         self.errors[sp] = 'Received empty response'
                         print(f"--> Empty response from {sp} when calling {method}")
                         continue
-
                     self.results[sp] = res
                     if method in ("getblock", "getblocktransactions"):
                         print(f"--> Success from provider {sp}")
@@ -169,10 +178,9 @@ class Service(object):
                     self.errors[sp] = err_msg
                     print(f"--> Error from provider {sp}: {err_msg}")
 
-            if self.results: # if have result — exit
+            if self.results:
                 return list(self.results.values())[0]
 
-            # if empty are waiting
             if attempt < retries:
                 print(f"--> No result, retrying {attempt}/{retries} in {retry_delay}s...")
                 time.sleep(retry_delay)
@@ -248,9 +256,6 @@ class Service(object):
             if len(self.results):
                 self.cache.store_transaction(tx)
         return tx
-
-    def created_and_import_descriptors(self, descriptors):
-       self._provider_execute('created_and_import_descriptors', descriptors)
 
     def createwallet(self, attrs):
        self._provider_execute('createwallet', attrs)

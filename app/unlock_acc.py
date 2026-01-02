@@ -1,12 +1,10 @@
 import requests as rq
 import json
 from .logging import logger
-from .config import config
-
+from .config import config, COIN
 
 acc_password = False
 
-    
 def get_account_password():
     global acc_password 
     if acc_password:
@@ -15,9 +13,9 @@ def get_account_password():
     else:
         logger.warning("Get password from shkeeper")
         resp = rq.get(
-                        f'http://{config["SHKEEPER_HOST"]}/api/v1/BTC/decrypt',
-                        headers={'X-Shkeeper-Backend-Key': config['SHKEEPER_KEY']}
-                    )
+            f'http://{config["SHKEEPER_HOST"]}/api/v1/{COIN}/decrypt',
+            headers={'X-Shkeeper-Backend-Key': config['SHKEEPER_KEY']}
+        )
         r = resp.json()
         if r['persistent_status'] == "disabled":
             logger.warning('Encryption is disabled')
