@@ -5,8 +5,6 @@ from prometheus_client import generate_latest, Info, Gauge
 
 from . import metrics_blueprint
 from app.config import config
-# from ..models import Settings, db
-from app.wallet import BTCWallet
 
 prometheus_client.REGISTRY.unregister(prometheus_client.GC_COLLECTOR)
 prometheus_client.REGISTRY.unregister(prometheus_client.PLATFORM_COLLECTOR)

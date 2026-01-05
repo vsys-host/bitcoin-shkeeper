@@ -51,7 +51,7 @@ class DbWallet(db.Model):
     name = db.Column(db.String(80), unique=True)
     owner = db.Column(db.String(50))
     network_name = db.Column(db.String(20))
-    network = db.Column(db.String(20), default=config['BTC_NETWORK'])
+    network = db.Column(db.String(20), default=config['COIN_NETWORK'])
     generated_address_count = db.Column(db.Integer, default=0)
     purpose = db.Column(db.Integer)
     scheme = db.Column(db.String(25))
@@ -100,7 +100,7 @@ class DbKey(db.Model):
     network_name = db.Column(db.String(20))
     latest_txid = db.Column(db.VARBINARY(33))
     witness_type = db.Column(db.String(20), default='segwit')
-    network = db.Column(db.String(20), default=config['BTC_NETWORK'])
+    network = db.Column(db.String(20), default=config['COIN_NETWORK'])
     balance = db.Column(db.BigInteger, default=0)
     used = db.Column(db.Boolean, default=False)
 
