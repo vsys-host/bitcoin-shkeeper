@@ -3,15 +3,14 @@ import json
 import decimal
 import random
 import uuid
-from app.btc_utils import BTCUtils
+from app.utils import BTCUtils, LTCUtils
 from app.lib.wallets import Wallet
 from app.lib.services.services import Service
-# from app.lib.encoding import addr_bech32_to_pubkeyhash, addr_base58_to_pubkeyhash
 import requests
 import time
 import sqlalchemy
 from flask import current_app as app
-from .config import config
+from .config import config, COIN
 from .models import DbWallet, DbTransaction, db
 from app.lib.values import Value, decimal_value_to_satoshi
 from .logging import logger
@@ -19,7 +18,7 @@ from app.unlock_acc import get_account_password
 
 WALLETS_DIRECTORY = "wallets"
 
-class BTCWallet():
+class CoinWallet():
     def __init__(self) -> None:
         self.client = config["FULLNODE_URL"]
     
@@ -75,8 +74,8 @@ class BTCWallet():
 
     def getblockchaininfo(self):
         srv = self._build_service()
-        getblockchaininfo =  srv.getblockchaininfo()
-        return getblockchaininfo
+        blockchain_info =  srv.getblockchaininfo()
+        return blockchain_info
 
     def get_last_block_number(self):
         srv = self._build_service()    
@@ -84,7 +83,7 @@ class BTCWallet():
         return last_number
 
     def _build_service(self):
-        return Service(config['BTC_NETWORK'])
+        return Service(config['COIN_NETWORK'])
     
     def get_transaction_price(self):
         srv = self._build_service()
@@ -97,7 +96,7 @@ class BTCWallet():
         wallet = self.current_wallet()
         if not wallet:
             wallet_name = self.generate_wallet_name()
-            wallet = Wallet.create(wallet_name, network=config['BTC_NETWORK'], witness_type='segwit')
+            wallet = Wallet.create(wallet_name, network=config['COIN_NETWORK'], witness_type='segwit')
         
         current_index_path = wallet.current_index_path()
         # add code
@@ -197,7 +196,7 @@ class BTCWallet():
     def generate_address(self):
         if db.session.query(DbWallet).count() == 0:
             wallet_name = self.generate_wallet_name()
-            wallet = Wallet.create(wallet_name, network=config['BTC_NETWORK'], witness_type='segwit')
+            wallet = Wallet.create(wallet_name, network=config['COIN_NETWORK'], witness_type='segwit')
             address_index = 1
             logger.warning("Wallet created")
         else:
@@ -210,14 +209,14 @@ class BTCWallet():
         if wallet.purpose == 0:
            path = f"m/0'/0/{address_index}"
            path_old = f"m/0'/1/{address_index}"
-           keys = wallet.keys_for_path(path=path, witness_type='segwit', account_id=0, network=config['BTC_NETWORK']) 
-           wallet.keys_for_path(path=path_old, witness_type='segwit', account_id=0, network=config['BTC_NETWORK']) 
+           keys = wallet.keys_for_path(path=path, witness_type='segwit', account_id=0, network=config['COIN_NETWORK']) 
+           wallet.keys_for_path(path=path_old, witness_type='segwit', account_id=0, network=config['COIN_NETWORK']) 
         else:
             current_index_path = wallet.current_index_path()
             path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
             change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
-            wallet.keys_for_path(path=change_path, account_id=0, network=config['BTC_NETWORK'], witness_type='segwit')
-            keys = wallet.keys_for_path(path=path, account_id=0, network=config['BTC_NETWORK'], witness_type='segwit')
+            wallet.keys_for_path(path=change_path, account_id=0, network=config['COIN_NETWORK'], witness_type='segwit')
+            keys = wallet.keys_for_path(path=path, account_id=0, network=config['COIN_NETWORK'], witness_type='segwit')
         if not keys:
             logger.warning(f"No keys returned for path {path}")
             return None
@@ -225,14 +224,16 @@ class BTCWallet():
         address = keys[0].address
         return address
 
-    def make_multipayout(self, payout_list, btc_fee):
+    def make_multipayout(self, payout_list, coin_fee):
         logger.warning(f'make_multipayout wallets {payout_list}')
-        logger.warning(f'make_multipayout btc_fee {btc_fee}')
-        fee = Value.from_satoshi(btc_fee).value
+        logger.warning(f'make_multipayout {coin_fee}')
+        fee = Value.from_satoshi(coin_fee).value
         payout_results = []
+
         for payout in payout_list:
-            if not self.is_valid_btc_address(payout['dest']):
-                raise Exception(f"Address {payout['dest']} is not valid BTC address")
+            address = payout.get('dest') or payout.get('destination')
+            if not self.is_valid_address(address):
+                raise Exception(f"Address {address} is not valid address")
 
         should_pay = decimal.Decimal('0')
 
@@ -258,12 +259,12 @@ class BTCWallet():
         
         for payout in payout_list:
             satoshi_amount = decimal_value_to_satoshi(payout['amount'])
-
-            tx = self.current_wallet().send_to(payout['dest'], satoshi_amount, fee_per_kb=network_fee_per_kb)
+            address = payout.get('dest') or payout.get('destination')
+            tx = self.current_wallet().send_to(address, satoshi_amount, fee_per_kb=network_fee_per_kb)
             try:
                 tx.send()
                 payout_results.append({
-                    "dest": payout['dest'],
+                    "dest": address,
                     "amount": float(payout['amount']),
                     "status": "success",
                     "txids": [str(tx)],
@@ -271,7 +272,7 @@ class BTCWallet():
             except Exception as e:
                 logger.warning(f"Submit failed: {e}")
                 payout_results.append({
-                    "dest": payout['dest'],
+                    "dest": address,
                     "amount": float(payout['amount']),
                     "status": "error",
                     "error": str(e),
@@ -279,12 +280,10 @@ class BTCWallet():
         logger.warning(f'payout_results wallets {payout_results}')
         return payout_results
 
-    def is_valid_btc_address(self, address: str) -> bool:
-        return BTCUtils.is_valid_btc_address(address)
-
-    # def drain_account(self, destination):
-    #     wallet = self.current_wallet()
-    #     tx = wallet.sweep(destination)
-    #     result = tx.send()
-    #     return result
- 
+    def is_valid_address(self, address: str) -> bool:
+        if COIN == "BTC":
+            return BTCUtils.is_valid_btc_address(address)
+        elif COIN == "LTC":
+            return LTCUtils.is_valid_ltc_address(address)
+        else:
+            raise ValueError(f"Unknown coin type: {COIN}")

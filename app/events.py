@@ -1,7 +1,7 @@
 import time
 from app.logging import logger
-from app.config import config
-from app.wallet import BTCWallet
+from app.config import config, COIN
+from app.wallet import CoinWallet
 from app.tasks import migrate_wallet_task
 from app.models import DbCacheVars
 from app.lib.services.services import Service
@@ -16,15 +16,15 @@ def handle_event(transaction):
     logger.info(f'new transaction: {transaction!r}')
 
 def log_loop():
-    btc_wallet = BTCWallet()
-    wallet = btc_wallet.wallet()
+    coin_wallet = CoinWallet()
+    wallet = coin_wallet.wallet()
     while wallet is None:
         logger.warning("Wallet not loaded yet, waiting 10 seconds...")
         time.sleep(10)
-        wallet = btc_wallet.wallet()
+        wallet = coin_wallet.wallet()
     default_check_interval = int(config.get("CHECK_NEW_BLOCK_EVERY_SECONDS", 60))
-    srv = Service(config['BTC_NETWORK'])
-    latest_height = btc_wallet.get_last_block_number()
+    srv = Service(config['COIN_NETWORK'])
+    latest_height = coin_wallet.get_last_block_number()
     # value = 917515
     value = wallet.session.query(DbCacheVars.value).filter_by(
         varname='last_scanned_block',
@@ -46,7 +46,7 @@ def log_loop():
     else:
         current_height = int(value)
     while True:
-        latest_height = btc_wallet.get_last_block_number()
+        latest_height = coin_wallet.get_last_block_number()
         logger.info(f"latest_height {latest_height}")
         logger.info(f"current_height {current_height}")
         if latest_height > current_height:
@@ -85,8 +85,8 @@ def events_listener():
                 wait_until_node_synced(max_delta_minutes=30)
                 _node_synced = True
 
-            btc_wallet = BTCWallet()
-            wallet = btc_wallet.wallet()
+            coin_wallet = CoinWallet()
+            wallet = coin_wallet.wallet()
 
             migration_flag = wallet.session.query(DbCacheVars).filter_by(
                 varname="wallet_migration_in_progress",
@@ -148,7 +148,7 @@ def events_listener():
                     time.sleep(60)
                     continue
 
-                wallet = btc_wallet.wallet()
+                wallet = coin_wallet.wallet()
                 migration_done = wallet.session.query(DbCacheVars).filter_by(
                     varname="wallet_migrated",
                     network_name=wallet.network.name
@@ -174,18 +174,18 @@ def wait_for_account_password(interval=20):
         time.sleep(interval)
 
 def wait_until_node_synced(max_delta_minutes=30, check_interval=120, error_interval=60):
-    btc_wallet = BTCWallet()
+    coin_wallet = CoinWallet()
     max_delta_seconds = max_delta_minutes * 60
 
     while True:
         try:
-            info = btc_wallet.getblockchaininfo()
+            info = coin_wallet.getblockchaininfo()
             logger.warning(f"get getblockchain info {info}")
         except Exception as e:
             logger.exception(f"Failed to get blockchain info: {e}")
             time.sleep(error_interval)
             continue
-        time_last_block = info.get("time")
+        time_last_block = info.get("time") or info.get("mediantime")
         if time_last_block is None:
             logger.warning("Cannot get time_last_block from blockchain info, retrying...")
             time.sleep(error_interval)
