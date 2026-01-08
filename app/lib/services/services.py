@@ -23,10 +23,10 @@ PROVIDER_MAP = {
         "key": "litecoind",
         "client_class": "LitecoindClient",
     },
-    # "DOGE": {
-    #     "key": "dogecoind",
-    #     "client_class": "DogecoindClient",
-    # },
+    "DOGE": {
+        "key": "dogecoind",
+        "client_class": "DogecoindClient",
+    },
 }
 
 class ServiceError(Exception):

@@ -837,7 +837,7 @@ class Wallet(object):
 
             w = cls(new_wallet_id, db_cache_uri=db_cache_uri, main_key_object=mk.key())
             w.key_for_path([], account_id=account_id, change=0, address_index=0)
-        else:  # scheme == 'single':
+        else:  # scheme == 'single': # DOGE
             if not key:
                 key = HDKey(network=network, depth=key_depth)
             mk = WalletKey.from_key(key=key, name=name, session=session, wallet_id=new_wallet_id, network=network,
@@ -909,9 +909,9 @@ class Wallet(object):
             network = DEFAULT_NETWORK
         if witness_type is None:
             witness_type = DEFAULT_WITNESS_TYPE
-        if network in ['dogecoin', 'dogecoin_testnet'] and witness_type != 'legacy':
+        if COIN == 'DOGE' and witness_type != 'legacy':    
             raise WalletError("Segwit is not supported for %s wallets" % network.capitalize())
-        elif network in ('dogecoin', 'dogecoin_testnet') and witness_type not in ('legacy', 'p2sh-segwit'):
+        elif COIN == 'DOGE' and witness_type not in ('legacy', 'p2sh-segwit'):
             raise WalletError("Pure segwit addresses are not supported for Dogecoin wallets. "
                               "Please use p2sh-segwit instead")
 
@@ -1231,8 +1231,8 @@ class Wallet(object):
 
     def scan(self, scan_gap_limit=1, account_id=None, change=None, rescan_used=False, network=None, keys_ignore=None, block=''):
         network, account_id, _ = self._get_account_defaults(network, account_id)
-        if self.scheme != 'bip32' and scan_gap_limit < 2:
-            raise WalletError("The wallet scan() method is only available for BIP32 wallets")
+        # if self.scheme != 'bip32' and scan_gap_limit < 2:
+        #     raise WalletError("The wallet scan() method is only available for BIP32 wallets")
 
         if keys_ignore is None:
             keys_ignore = set()
@@ -2343,7 +2343,7 @@ class Wallet(object):
                                   "or lower fees")
 
             if self.scheme == 'single':
-                change_keys = [self.get_key(account_id, self.witness_type, network, change=1)]
+                change_keys = [self.get_key(account_id, self.witness_type, network, change=0)]
             else:
                 change_keys = self.get_keys(account_id, self.witness_type, network, change=1,
                                             number_of_keys=number_of_change_outputs)

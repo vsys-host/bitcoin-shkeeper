@@ -101,3 +101,20 @@ class LTCUtils:
             r'(ltc1|tltc1)[023456789acdefghjklmnpqrstuvwxyz]{11,71}',
             address.lower()
         ))
+
+class DOGEUtils:
+    MAINNET_PREFIXES = ("D", "A")   # P2PKH / P2SH
+    TESTNET_PREFIXES = ("n", "m", "2")  # testnet variants
+
+    @staticmethod
+    def is_valid_doge_address(address: str) -> bool:
+        if not isinstance(address, str):
+            return False
+        try:
+            base58.b58decode_check(address)
+            prefix = address[0]
+            if prefix in DOGEUtils.MAINNET_PREFIXES + DOGEUtils.TESTNET_PREFIXES:
+                return True
+        except Exception:
+            return False
+        return False
