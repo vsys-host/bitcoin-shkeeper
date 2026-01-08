@@ -2,7 +2,7 @@ import os
 from decimal import Decimal
 from typing import Literal
 from functools import wraps
-from flask import current_app, jsonify
+from flask import jsonify
 from werkzeug.routing import BaseConverter
 from .config import config
 from .logging import logger
@@ -25,7 +25,6 @@ def block_during_migration(fn):
     return wrapper
 
 class DecimalConverter(BaseConverter):
-
     def to_python(self, value):
         return Decimal(value)
 

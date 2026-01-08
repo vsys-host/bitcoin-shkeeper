@@ -88,13 +88,13 @@ def events_listener():
             coin_wallet = CoinWallet()
             wallet = coin_wallet.wallet()
 
-            migration_flag = wallet.session.query(DbCacheVars).filter_by(
+            migration_flag = wallet.session.query(DbCacheVars.value).filter_by(
                 varname="wallet_migration_in_progress",
                 network_name=wallet.network.name
             ).scalar()
 
             if os.path.isfile(config['WALLET_DAT_PATH']) and not wallet.migrated:
-                if migration_flag != "in_progress":
+                if not migration_flag or migration_flag != "in_progress":
                     wallet.session.query(DbCacheVars).filter_by(
                         varname="wallet_migration_in_progress",
                         network_name=wallet.network.name
@@ -180,7 +180,7 @@ def wait_until_node_synced(max_delta_minutes=30, check_interval=120, error_inter
     while True:
         try:
             info = coin_wallet.getblockchaininfo()
-            logger.warning(f"get getblockchain info {info}")
+            logger.info(f"Retrieved blockchain info: {info}")
         except Exception as e:
             logger.exception(f"Failed to get blockchain info: {e}")
             time.sleep(error_interval)

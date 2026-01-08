@@ -12,9 +12,7 @@ import requests
 from sqlalchemy import exists
 from decimal import Decimal
 from pathlib import Path
-from datetime import datetime, timedelta
 import subprocess
-import time
 import os
 import secrets, string
 
@@ -95,8 +93,12 @@ def list_legacy_address():
     return addresses
 
 def time_wallet_created():
-    if config["TIME_WALLET_CREATED"]:
-        return int(config["TIME_WALLET_CREATED"])
+    configured_time = config.get("TIME_WALLET_CREATED")
+    if configured_time:
+        try:
+            return int(configured_time)
+        except (TypeError, ValueError):
+            logger.warning("Invalid TIME_WALLET_CREATED value in config: %r", configured_time)
     try:
         response = requests.post(
             "http://" + gethost(),
@@ -158,7 +160,7 @@ def find_closest_block_by_timestamp(target_timestamp, max_diff_seconds=86400):
             closest_block = block
             closest_diff = 0
             break
-    if closest_block is None or closest_block == 0:
+    if closest_block is None:
         raise ValueError("No block found.")
     if closest_diff > max_diff_seconds:
         raise ValueError(
@@ -174,6 +176,21 @@ def generate_addresses(coin_wallet, current_index_path, quantity_generated_addre
         keys = coin_wallet.keys_for_path(path=path, witness_type=witness_type)
         addr = keys[0].address
         yield path, addr
+
+def mark_wallet_migrated(session, coin_wallet, height):
+    network = coin_wallet.network.name
+    value = str(height - 20)
+    record = session.query(DbCacheVars).filter_by(varname="last_scanned_block", network_name=network).first()
+    if record:
+        record.value = value
+    else:
+        session.add(DbCacheVars(varname="last_scanned_block", network_name=network, value=value, type="int", expires=None))
+    db_wallet = session.query(DbWallet).first()
+    if db_wallet:
+        db_wallet.migrated = True
+        print("Migrated flag updated")
+        session.add(db_wallet)
+    session.commit()
 
 def migrate_addreses():
     if COIN == 'BTC':
@@ -232,7 +249,7 @@ def _migrate_btc():
         closest = find_closest_block_by_timestamp(target_timestamp)
         print(f"Closest block height: {closest['height']}")
     except Exception as e:
-        print(f"Migration migrate_addreses failed: {e}")
+        print(f"Migration migrate_addresses failed: {e}")
         if bitcoind_proc:
             print("Terminate bitcoind_proc")
             bitcoind_proc.terminate()
@@ -303,31 +320,7 @@ def _migrate_btc():
             addr = keys[0].address
             print(f"Path: {path} → Address: {addr}")
     session = db.session
-    network = coin_wallet.network.name
-    value = str(closest["height"] - 20)
-    record = session.query(DbCacheVars).filter_by(
-        varname="last_scanned_block", network_name=network
-    ).first()
-    if record:
-        record.value = value
-    else:
-        record = DbCacheVars(
-            varname="last_scanned_block",
-            network_name=network,
-            value=value,
-            type="int",
-            expires=None,
-        )
-        session.add(record)
-
-    db_wallet = session.query(DbWallet).first()
-    if db_wallet:
-        db_wallet.migrated = True
-        print(f"migrated updated")
-        session.add(db_wallet)
-
-    session.commit()
-
+    mark_wallet_migrated(session, coin_wallet, closest["height"])
     if bitcoind_proc:
         bitcoind_proc.terminate()
         bitcoind_proc.wait()
@@ -376,7 +369,6 @@ def _migrate_ltc():
     from app import create_app
     app = create_app()
     app.app_context().push()
-    coin_wallet = CoinWallet()
     from app.lib.wallets import Wallet, DbWallet, wallets_list, wallet_delete, db
     try:
         target_timestamp = time_wallet_created()
@@ -385,7 +377,7 @@ def _migrate_ltc():
         closest = find_closest_block_by_timestamp(target_timestamp)
         print(f"Closest block height: {closest['height']}")
     except Exception as e:
-        print(f"Migration migrate_addreses failed: {e}")
+        print(f"Migration migrate_addresses failed: {e}")
         if litecoind_proc:
             print("Terminate litecoind_proc")
             litecoind_proc.terminate()
@@ -434,30 +426,7 @@ def _migrate_ltc():
         print(f"Path: {path} → Address: {addr}")
     
     session = db.session
-    network = coin_wallet.network.name
-    value = str(closest["height"] - 20)
-    record = session.query(DbCacheVars).filter_by(
-        varname="last_scanned_block", network_name=network
-    ).first()
-    if record:
-        record.value = value
-    else:
-        record = DbCacheVars(
-            varname="last_scanned_block",
-            network_name=network,
-            value=value,
-            type="int",
-            expires=None,
-        )
-        session.add(record)
-
-    db_wallet = session.query(DbWallet).first()
-    if db_wallet:
-        db_wallet.migrated = True
-        print(f"migrated updated")
-        session.add(db_wallet)
-
-    session.commit()
+    mark_wallet_migrated(session, coin_wallet, closest["height"])
 
     if litecoind_proc:
         litecoind_proc.terminate()
