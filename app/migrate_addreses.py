@@ -4,7 +4,7 @@ import shutil
 from app.logging import logger
 from app.config import config, COIN
 from app.wallet import CoinWallet
-from app.models import DbWallet, db, DbCacheVars
+from app.models import DbWallet, db, DbCacheVars, DbDogeMigrationWallet
 from app.lib.services.services import Service
 from os import environ
 import shutil
@@ -93,6 +93,45 @@ def list_legacy_address():
     except requests.exceptions.RequestException:
         addresses = False
     return addresses
+
+def list_unique_wallet_addresses(batch_size=1000):
+    addresses = set()
+    offset = 0
+    while True:
+        response = requests.post(
+            "http://" + gethost(),
+            auth=get_rpc_credentials(),
+            json=build_rpc_request(
+                "listtransactions",
+                "*",
+                batch_size,
+                offset
+            ),
+            timeout=30,
+        ).json()
+        batch = response.get("result", [])
+        if not batch:
+            break
+        for tx in batch:
+            addr = tx.get("address")
+            if addr:
+                addresses.add(addr)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
+    return sorted(addresses)
+
+def save_doge_addresses(session, addresses, network):
+    for addr in addresses:
+        exists = session.query(DbDogeMigrationWallet.id)\
+            .filter_by(address=addr, network=network)\
+            .first()
+        if exists:
+            continue
+        session.add(DbDogeMigrationWallet(
+            address=addr,
+            network=network
+        ))
 
 def time_wallet_created():
     if config["TIME_WALLET_CREATED"]:
@@ -560,9 +599,7 @@ def _migrate_doge():
     legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
     db_wallet = db.session.query(DbWallet).first()
     db_wallet.generated_address_count = legacy_quantity_generated_adresses
-    db_wallet.migrated = True
     db.session.commit()
-    coin_wallet = CoinWallet()
     legacy_address = [{'address': addr} for addr in legacy_address]
     for address_index, addr_dict in enumerate(legacy_address):
         addr = addr_dict['address']
@@ -580,8 +617,16 @@ def _migrate_doge():
             print(f"  → SUCCESS: {privkey_data.get('privkey')}")
         else:
             print(f"  → ERROR: {privkey_data.get('error')}")
+
+    addresses = list_unique_wallet_addresses()
     session = db.session
-    mark_wallet_migrated(session, coin_wallet, closest["height"])
+    save_doge_addresses(
+        session=session,
+        addresses=addresses,
+        network=config['COIN_NETWORK']
+    )
+    # 45810 5996300
+    mark_wallet_migrated(session, doge_wallet, closest["height"])
     if dogecoind_proc:
         dogecoind_proc.terminate()
         dogecoind_proc.wait()

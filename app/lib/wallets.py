@@ -1209,14 +1209,14 @@ class Wallet(object):
     def new_key_change(self, name='', account_id=None, witness_type=None, network=None):
         return self.new_key(name=name, account_id=account_id, witness_type=witness_type, network=network, change=1)
 
-    def scan_key(self, key, txs_list):
+    def scan_key(self, key, txs_list, fixed_addresses):
         if isinstance(key, int):
             key = self.key(key)
         txs_found = False
         should_be_finished_count = 0
         while True:
             with log_time("transactions_update"):
-                n_new = self.transactions_update(key_id=key.id, txs_list=txs_list)
+                n_new = self.transactions_update(key_id=key.id, txs_list=txs_list, fixed_addresses=fixed_addresses)
             # _logger.warning(f"Found new transactions {n_new}")
             if n_new and n_new < MAX_TRANSACTIONS:
                 if should_be_finished_count:
@@ -1245,6 +1245,9 @@ class Wallet(object):
         start_time = time.time()
         txs_list = srv.getblocktransactions(block)
         txs = txs_list.get('tx', [])
+        fixed_addresses = None
+        if COIN == 'DOGE':
+           fixed_addresses = [addr[0] for addr in self.session.query(DbDogeMigrationWallet.address).all()]
         total_txs = len(txs)
         _logger.warning(f"Fetched {total_txs} transactions from block {block}")
 
@@ -1325,7 +1328,7 @@ class Wallet(object):
                             for attempt in range(MAX_RETRIES):
                                 try:
                                     with log_time(f"scan key started {key.address}"):
-                                        got_new = self.scan_key(key, txs_list)
+                                        got_new = self.scan_key(key, txs_list, fixed_addresses)
                                         _logger.warning("scan key finished")
                                     return (key.address_index, got_new)
                                 except OperationalError as e:
@@ -1897,7 +1900,7 @@ class Wallet(object):
         # self._balance_update(account_id=account_id, network=network, key_id=key_id)
 
     def transactions_update(self, account_id=None, used=None, network=None, key_id=None, depth=None, change=None,
-                        limit=MAX_TRANSACTIONS, txs_list=[]):
+                        limit=MAX_TRANSACTIONS, txs_list=None, fixed_addresses=None):
         network, account_id, acckey = self._get_account_defaults(network, account_id, key_id)
         if depth is None:
             depth = self.key_depth
@@ -1923,7 +1926,10 @@ class Wallet(object):
         txs_by_address = {}  # Track last tx per address for batch update
         for address in addresslist:
             after_txid = latest_txids.get(address, '')
-            new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
+            if COIN == 'DOGE':
+                new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list, fixed_addresses=fixed_addresses)
+            else:
+                new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
             txs += new_txs
             if new_txs and new_txs[-1].confirmations:
                 txs_by_address[address] = new_txs[-1].txid

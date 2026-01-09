@@ -19,7 +19,7 @@ DB_NAME_MAP = {
 FULLNODE_URL =  {
                   "BTC": "http://shkeeper:shkeeper@fullnode.bitcoin.shkeeper.io:8332",
                   "LTC": "http://shkeeper:shkeeper@fullnode.litecoin.shkeeper.io",
-                  "DOGE": "http://dogecoinuser:dogecoinpass@195.66.213.33:19332"
+                  "DOGE": "http://shkeeper:shkeeper@fullnode.dogeecoin.shkeeper.io"
                 }
 BASE_WALLET_PATHS = {
     "BTC": "/root/.bitcoin/shkeeper/wallet.dat",

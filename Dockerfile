@@ -25,6 +25,11 @@ RUN wget -O litecoin.tar.gz https://download.litecoin.org/litecoin-0.21.2.2/linu
     && cp litecoin-0.21.2.2/bin/* /usr/local/bin/ \
     && rm -rf litecoin-0.21.2.2 litecoin.tar.gz
 
+RUN wget -O dogecoin.tar.gz https://github.com/dogecoin/dogecoin/releases/download/v1.14.5/dogecoin-1.14.5-x86_64-linux-gnu.tar.gz \
+    && tar -xzf dogecoin.tar.gz \
+    && cp dogecoin-1.14.5/bin/dogecoind dogecoin-1.14.5/bin/dogecoin-cli /usr/local/bin/ \
+    && rm -rf dogecoin-1.14.5 dogecoin.tar.gz
+
 WORKDIR /app
 
 COPY requirements.txt ./

@@ -3,6 +3,7 @@ from app.lib.main import *
 from app.lib.services.authproxy import AuthServiceProxy
 from app.lib.services.baseclient import BaseClient, ClientError
 from app.lib.transactions import Transaction
+# from app.models import db, DbDogeMigrationWallet
 from app.lib.networks import Network
 from app.config import config
 from app.models import db, DbCacheVars
@@ -197,7 +198,15 @@ class DogecoindClient(BaseClient):
         tx_raw = self.proxy.getrawtransaction(txid, 1)
         return self._parse_transaction(tx_raw)
 
-    def gettransactions(self, address, after_txid='', txs_list=[]):
+    def getblockchaininfo(self):
+        blockchain_info = self.proxy.getblockchaininfo()
+        return blockchain_info
+
+    def gettransactions(self, address, after_txid='', txs_list=None, fixed_addresses=None):
+        if txs_list is None:
+            txs_list = []
+        if fixed_addresses is None:
+            fixed_addresses = []
         txs = []
         if not txs_list:
             return txs
@@ -216,32 +225,24 @@ class DogecoindClient(BaseClient):
                 if address in addrs:
                     matched = True
                     break
-            fixed_addresses = [
-                'DRVzh2cmhmeEdJQjScGbYenMDNjbPWKfj2',
-                'DG2D392MJia1WS8Zqg8X47p2WNiTvdrFnq',
-                'DEMGJqVEJE7DkWxAQVrwQbujgoRjiDv9C4',
-                'DHcTuqLn8FcuuK7h1GqmJ7WH5deuLTSyyw',
-                'DRrkyPkQ9nHyXWHxE1BDQwbPHnkGYjazYQ',
-                'DCAENsgpyLwpgY3sgayBo4MxVo835hr7RM'
-            ]
-            if not matched and address in fixed_addresses:
-                for vin in tx.get('vin', []):
-                    prev_txid = vin.get('txid')
-                    prev_vout_index = vin.get('vout')
+                if not matched and addrs in fixed_addresses:
+                    for vin in tx.get('vin', []):
+                        prev_txid = vin.get('txid')
+                        prev_vout_index = vin.get('vout')
 
-                    if prev_txid is None or prev_vout_index is None:
-                        continue
+                        if prev_txid is None or prev_vout_index is None:
+                            continue
 
-                    try:
-                        prev_tx = self.proxy.getrawtransaction(prev_txid, 1)
-                        prev_vout = prev_tx['vout'][prev_vout_index]
-                        addrs = prev_vout.get('scriptPubKey', {}).get('addresses', [])
-                    except Exception:
-                        continue
+                        try:
+                            prev_tx = self.proxy.getrawtransaction(prev_txid, 1)
+                            prev_vout = prev_tx['vout'][prev_vout_index]
+                            addrs = prev_vout.get('scriptPubKey', {}).get('addresses', [])
+                        except Exception:
+                            continue
 
-                    if address in addrs:
-                        matched = True
-                        break
+                        if address in addrs:
+                            matched = True
+                            break
 
             if not matched:
                 continue
