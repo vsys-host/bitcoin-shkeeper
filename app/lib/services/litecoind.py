@@ -249,6 +249,10 @@ class LitecoindClient(BaseClient):
         bcinfo = self.proxy.getblockchaininfo()
         return bcinfo['blocks']
 
+    def getblockchaininfo(self):
+        blockchain_info = self.proxy.getblockchaininfo()
+        return blockchain_info
+
     def synced_status(self):
         bcinfo = self.proxy.getblockchaininfo()
         not_synced_block = bcinfo['headers'] - bcinfo['blocks']

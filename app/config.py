@@ -20,6 +20,11 @@ FULLNODE_URL =  {
                   "BTC": "http://shkeeper:shkeeper@fullnode.bitcoin.shkeeper.io:8332",
                   "LTC": "http://shkeeper:shkeeper@fullnode.litecoin.shkeeper.io"
                 }
+BASE_WALLET_PATHS = {
+    "BTC": "/root/.bitcoin/shkeeper/wallet.dat",
+    "LTC": "/root/.litecoin/shkeeper/wallet.dat",
+    "DOGE": "/root/.dogecoin/shkeeper/wallet.dat",
+}
 config = {
     'FULLNODE_URL': os.environ.get('FULLNODE_URL', FULLNODE_URL[COIN]),
     'FULLNODE_TIMEOUT': os.environ.get('FULLNODE_TIMEOUT', '60'),
@@ -45,6 +50,8 @@ config = {
     'NETWORK_FEE': os.environ.get('NETWORK_FEE', "0.00005"),
     'ACCOUNT_RESERVED_AMOUNT': os.environ.get('ACCOUNT_RESERVED_AMOUNT', "0.000001"),
     'MIN_CONFIRMS': os.environ.get('MIN_CONFIRMS', "1"),
+    'WALLET_DAT_PATH': os.environ.get('WALLET_DAT_PATH', BASE_WALLET_PATHS[COIN]),
+    'TIME_WALLET_CREATED': os.environ.get('TIME_WALLET_CREATED'),
     'COIN_NETWORK': os.environ.get(f"{COIN}_NETWORK", "main"),  # main, testnet, regtest
 }
 

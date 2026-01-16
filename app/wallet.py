@@ -72,6 +72,11 @@ class CoinWallet():
         last_number =  srv.synced_status()
         return last_number
 
+    def getblockchaininfo(self):
+        srv = self._build_service()
+        blockchain_info =  srv.getblockchaininfo()
+        return blockchain_info
+
     def get_last_block_number(self):
         srv = self._build_service()    
         last_number =  srv.blockcount()

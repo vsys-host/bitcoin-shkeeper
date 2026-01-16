@@ -373,6 +373,10 @@ class Service(object):
         synced_count = self._provider_execute('synced_status')
         return synced_count
 
+    def getblockchaininfo(self):
+        blockchain_info = self._provider_execute('getblockchaininfo')
+        return blockchain_info
+
     def blockcount(self):
         blockcount = self.cache.blockcount()
         last_cache_blockcount = self.cache.blockcount(never_expires=True)

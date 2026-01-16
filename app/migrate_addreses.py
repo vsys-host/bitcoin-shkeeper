@@ -12,9 +12,7 @@ import requests
 from sqlalchemy import exists
 from decimal import Decimal
 from pathlib import Path
-from datetime import datetime
 import subprocess
-import time
 import os
 import secrets, string
 
@@ -33,9 +31,7 @@ elif COIN == "LTC":
 else:
     raise ValueError(f"Unsupported coin: {COIN}")
 DUMP_FILE = "keys.txt"
-
 rpc_bind = "0.0.0.0"
-# rpc_bind = socket.gethostbyname(socket.gethostname()) or "127.0.0.1"
 
 def handle_event(transaction):        
     logger.info(f'new transaction: {transaction!r}')
@@ -97,6 +93,12 @@ def list_legacy_address():
     return addresses
 
 def time_wallet_created():
+    configured_time = config.get("TIME_WALLET_CREATED")
+    if configured_time:
+        try:
+            return int(configured_time)
+        except (TypeError, ValueError):
+            logger.warning("Invalid TIME_WALLET_CREATED value in config: %r", configured_time)
     try:
         response = requests.post(
             "http://" + gethost(),
@@ -135,10 +137,11 @@ def get_legacy_quantity_generated_adresses(list_addreses):
     quantity_generated_adresses = len(list_addreses)
     return quantity_generated_adresses + 10
 
-def find_closest_block_by_timestamp(target_timestamp):
+def find_closest_block_by_timestamp(target_timestamp, max_diff_seconds=86400):
     srv = Service(config['COIN_NETWORK'])
+    wallet = CoinWallet()
     start_height = 0
-    end_height = CoinWallet().get_last_block_number()
+    end_height = wallet.get_last_block_number()
     closest_block = None
     closest_diff = float('inf')
     while start_height <= end_height:
@@ -154,7 +157,15 @@ def find_closest_block_by_timestamp(target_timestamp):
         elif ts > target_timestamp:
             end_height = mid - 1
         else:
-            return block
+            closest_block = block
+            closest_diff = 0
+            break
+    if closest_block is None:
+        raise ValueError("No block found.")
+    if closest_diff > max_diff_seconds:
+        raise ValueError(
+            f"Closest block is too far from wallet creation date: {closest_diff} seconds"
+        )
     return closest_block
 
 def generate_addresses(coin_wallet, current_index_path, quantity_generated_addresses, witness_type='segwit'):
@@ -166,6 +177,21 @@ def generate_addresses(coin_wallet, current_index_path, quantity_generated_addre
         addr = keys[0].address
         yield path, addr
 
+def mark_wallet_migrated(session, coin_wallet, height):
+    network = coin_wallet.network.name
+    value = str(height - 20)
+    record = session.query(DbCacheVars).filter_by(varname="last_scanned_block", network_name=network).first()
+    if record:
+        record.value = value
+    else:
+        session.add(DbCacheVars(varname="last_scanned_block", network_name=network, value=value, type="int", expires=None))
+    db_wallet = session.query(DbWallet).first()
+    if db_wallet:
+        db_wallet.migrated = True
+        print("Migrated flag updated")
+        session.add(db_wallet)
+    session.commit()
+
 def migrate_addreses():
     if COIN == 'BTC':
         _migrate_btc()
@@ -175,7 +201,7 @@ def migrate_addreses():
         raise ValueError(f"Unsupported coin {COIN}")
 
 def _migrate_btc():
-    SRC = "/root/.bitcoin/shkeeper/wallet.dat"
+    SRC = config['WALLET_DAT_PATH']
     os.makedirs(TMP_DATADIR, exist_ok=True)
     DST = os.path.join(TMP_DATADIR, "wallet.dat")
     try:
@@ -185,6 +211,7 @@ def _migrate_btc():
         print(f"{SRC} not found, skipping copy")
     except PermissionError:
         print(f"Permission denied copying {SRC} → {DST}")
+
     bitcoind_cmd = [
         "bitcoind",
         f"-datadir={TMP_DATADIR}",
@@ -215,9 +242,25 @@ def _migrate_btc():
     app.app_context().push()
     coin_wallet = CoinWallet()
     from app.lib.wallets import Wallet, DbWallet, wallets_list, wallet_delete, db
+    try:
+        target_timestamp = time_wallet_created()
+        if not target_timestamp:
+            raise RuntimeError("Wallet creation date not found. Aborting migration.")
+        closest = find_closest_block_by_timestamp(target_timestamp)
+        print(f"Closest block height: {closest['height']}")
+    except Exception as e:
+        print(f"Migration migrate_addresses failed: {e}")
+        if bitcoind_proc:
+            print("Terminate bitcoind_proc")
+            bitcoind_proc.terminate()
+            bitcoind_proc.wait()
+        if os.path.exists(TMP_DATADIR):
+            shutil.rmtree(TMP_DATADIR, ignore_errors=True)
+            print(f"Removed temporary directory {TMP_DATADIR}")
+        raise RuntimeError(f"Migration failed: {type(e).__name__}: {e}") from e
 
     if is_descriptor():
-        print("is_descriptor")
+        print("descriptor")
         descriptor = get_descriptors()
         wif = get_main_key(descriptor)
         for wallet in wallets_list():
@@ -232,19 +275,11 @@ def _migrate_btc():
 
         db_wallet = db.session.query(DbWallet).first()
         db_wallet.generated_address_count = quantity_generated_adresses
-        db_wallet.migrated = True
         db.session.commit()
 
         current_index_path = coin_wallet.current_index_path()
         for path, addr in generate_addresses(coin_wallet, current_index_path, quantity_generated_addresses=quantity_generated_adresses):
             print(f"Path: {path} → Address: {addr}")
-        # for address_index in range(quantity_generated_adresses):
-        #     path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
-        #     change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
-        #     btc_wallet.keys_for_path(path=change_path, witness_type='segwit')
-        #     keys = btc_wallet.keys_for_path(path=path, witness_type='segwit')
-        #     addr = keys[0].address
-        #     print(f"Path: {path} → Address: {addr}")
     else:
         bitcoind_proc.terminate()
         bitcoind_proc.wait()
@@ -276,7 +311,6 @@ def _migrate_btc():
         legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
         db_wallet = db.session.query(DbWallet).first()
         db_wallet.generated_address_count = legacy_quantity_generated_adresses
-        db_wallet.migrated = True
         db.session.commit()
         for address_index in range(legacy_quantity_generated_adresses):
             path = f"m/0'/0/{address_index}"
@@ -285,34 +319,18 @@ def _migrate_btc():
             keys = coin_wallet.keys_for_path(path=path, account_id=0, network=config['COIN_NETWORK'], witness_type='segwit', number_of_keys=2)
             addr = keys[0].address
             print(f"Path: {path} → Address: {addr}")
+    session = db.session
+    mark_wallet_migrated(session, coin_wallet, closest["height"])
+    if bitcoind_proc:
+        bitcoind_proc.terminate()
+        bitcoind_proc.wait()
 
-    target_timestamp = time_wallet_created()
-    closest = find_closest_block_by_timestamp(target_timestamp)
-    record = coin_wallet.session.query(DbCacheVars)\
-      .filter_by(varname='last_scanned_block', network_name=coin_wallet.network.name)\
-      .first()
-
-    if record:
-        coin_wallet.session.delete(record)
-        coin_wallet.session.commit()
-
-    new_var = DbCacheVars(
-        varname='last_scanned_block',
-        network_name=coin_wallet.network.name,
-        value=str(closest['height'] - 20),
-        type='int',
-        expires=None
-    )
-    coin_wallet.session.add(new_var)
-    coin_wallet.session.commit()
-    bitcoind_proc.terminate()
-    bitcoind_proc.wait()
     if os.path.exists(TMP_DATADIR):
         shutil.rmtree(TMP_DATADIR, ignore_errors=True)
         print(f"Removed temporary directory {TMP_DATADIR}")
 
 def _migrate_ltc():
-    SRC = "/root/.litecoin/shkeeper/wallet.dat"
+    SRC = config['WALLET_DAT_PATH']
     os.makedirs(TMP_DATADIR, exist_ok=True)
     DST = os.path.join(TMP_DATADIR, "wallet.dat")
     try:
@@ -351,8 +369,24 @@ def _migrate_ltc():
     from app import create_app
     app = create_app()
     app.app_context().push()
-    ltc_wallet = CoinWallet()
     from app.lib.wallets import Wallet, DbWallet, wallets_list, wallet_delete, db
+    try:
+        target_timestamp = time_wallet_created()
+        if not target_timestamp:
+            raise RuntimeError("Wallet creation date not found. Aborting migration.")
+        closest = find_closest_block_by_timestamp(target_timestamp)
+        print(f"Closest block height: {closest['height']}")
+    except Exception as e:
+        print(f"Migration migrate_addresses failed: {e}")
+        if litecoind_proc:
+            print("Terminate litecoind_proc")
+            litecoind_proc.terminate()
+            litecoind_proc.wait()
+        if os.path.exists(TMP_DATADIR):
+            shutil.rmtree(TMP_DATADIR, ignore_errors=True)
+            print(f"Removed temporary directory {TMP_DATADIR}")
+        raise RuntimeError(f"Migration failed: {type(e).__name__}: {e}") from e
+
     print("legacy")
     print("time_wallet_created")
     print(time_wallet_created())
@@ -375,46 +409,29 @@ def _migrate_ltc():
         wallet_name = wallet['name']
         print(wallet_name)
         wallet_delete(wallet_name, force=True)
-    ltc_wallet = Wallet.create('Wallet7', wif, witness_type='segwit', purpose='0')
+    coin_wallet = Wallet.create('Wallet7', wif, witness_type='segwit', purpose='0')
     print(list_legacy_address())
 
     legacy_address = list_legacy_address()
     legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
     db_wallet = db.session.query(DbWallet).first()
     db_wallet.generated_address_count = legacy_quantity_generated_adresses
-    db_wallet.migrated = True
     db.session.commit()
     for address_index in range(legacy_quantity_generated_adresses):
         path = f"m/0'/0/{address_index}"
         path_old = f"m/0'/1/{address_index}"
-        ltc_wallet.keys_for_path(path=path_old, witness_type='segwit', account_id=0, network=config['COIN_NETWORK'], number_of_keys=2)
-        keys = ltc_wallet.keys_for_path(path=path, account_id=0, network=config['COIN_NETWORK'], witness_type='segwit', number_of_keys=2) 
+        coin_wallet.keys_for_path(path=path_old, witness_type='segwit', account_id=0, network=config['COIN_NETWORK'], number_of_keys=2)
+        keys = coin_wallet.keys_for_path(path=path, account_id=0, network=config['COIN_NETWORK'], witness_type='segwit', number_of_keys=2) 
         addr = keys[0].address
         print(f"Path: {path} → Address: {addr}")
+    
+    session = db.session
+    mark_wallet_migrated(session, coin_wallet, closest["height"])
 
-    target_timestamp = time_wallet_created()
-    closest = find_closest_block_by_timestamp(target_timestamp)
-    print("closest[height]")
-    print(closest['height'])
-    record = ltc_wallet.session.query(DbCacheVars)\
-      .filter_by(varname='last_scanned_block', network_name=ltc_wallet.network.name)\
-      .first()
+    if litecoind_proc:
+        litecoind_proc.terminate()
+        litecoind_proc.wait()
 
-    if record:
-        ltc_wallet.session.delete(record)
-        ltc_wallet.session.commit()
-
-    new_var = DbCacheVars(
-        varname='last_scanned_block',
-        network_name=ltc_wallet.network.name,
-        value=str(closest['height'] - 20),
-        type='int',
-        expires=None
-    )
-    ltc_wallet.session.add(new_var)
-    ltc_wallet.session.commit()
-    litecoind_proc.terminate()
-    litecoind_proc.wait()
     if os.path.exists(TMP_DATADIR):
         shutil.rmtree(TMP_DATADIR, ignore_errors=True)
         print(f"Removed temporary directory {TMP_DATADIR}")
