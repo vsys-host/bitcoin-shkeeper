@@ -24,6 +24,9 @@ from sqlalchemy.exc import OperationalError
 from functools import lru_cache
 import time
 from contextlib import contextmanager
+from app.lib.aml.tasks import run_payout_for_tx, check_transaction
+from app.lib.aml.functions import get_external_drain_type, get_min_check_amount
+
 
 _logger = logging.getLogger(__name__)
 
@@ -590,12 +593,29 @@ class WalletTransaction(Transaction):
 
         _logger.debug("start store receive DbTransaction")
         should_notify = False
+
+        drain_type = get_external_drain_type(COIN)
+        if drain_type == "aml":
+            amount = 12
+            if amount > get_min_check_amount(COIN):
+                check_transaction.delay(COIN, account, hash)
+                ttype = "aml"
+                aml_status = "pending"
+                score = -1
+            else:
+                ttype = "from_fee"
+                aml_status = "skipped"
+                score = -1    
+
         if not db_tx:
             db_tx = DbTransaction(
                 wallet_id=self.hdwallet.wallet_id,
                 txid=bytes.fromhex(self.txid),
                 block_height=self.block_height,
                 size=self.size,
+                # ttype = ttype,
+                # aml_status = aml_status,
+                # score = score,
                 confirmations=self.confirmations,
                 date=self.date,
                 fee=self.fee,
@@ -1893,6 +1913,16 @@ class Wallet(object):
 
         self._commit()
         for txid in txids_to_notify:
+            if config['EXTERNAL_DRAIN_CONFIG']:
+                run_payout_for_tx.apply_async(
+                                    args=[
+                                        'BTC',
+                                        "tron_tx.dst_addr",
+                                        txid,
+                                    ],
+                                    # wait for 5min for data to be updated in AMLBot
+                                    countdown=config.AML_WAIT_BEFORE_API_CALL,
+                                )
             notify_shkeeper(COIN, txid)
         # self._balance_update(account_id=account_id, network=network, key_id=key_id)
 

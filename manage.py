@@ -5,7 +5,7 @@ from app import create_app, db
 from app.models import (
     DbWallet, DbKey, DbTransaction, DbTransactionInput, DbTransactionOutput,
     DbCacheTransaction, DbCacheTransactionNode, DbCacheAddress,
-    DbCacheBlock, DbCacheVars
+    DbCacheBlock, DbCacheVars, DbAmlPayout
 )
 
 def wait_for_db(engine, timeout=30):
@@ -35,6 +35,7 @@ def init_db():
         DbCacheAddress.__table__.create(bind=db.engine, checkfirst=True)
         DbCacheBlock.__table__.create(bind=db.engine, checkfirst=True)
         DbCacheVars.__table__.create(bind=db.engine, checkfirst=True)
+        DbAmlPayout.__table__.create(bind=db.engine, checkfirst=True)
         print("Tables created.")
 
 if __name__ == "__main__":

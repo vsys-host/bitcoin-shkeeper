@@ -38,6 +38,11 @@ config = {
             "?charset=utf8mb4&binary_prefix=true"
         ),
     ),
+    # ... aml_config
+    'EXTERNAL_DRAIN_CONFIG': None,
+    'DELAY_AFTER_FEE_TRANSFER': 60,
+    'AML_RESULT_UPDATE_PERIOD': 120,
+    'AML_WAIT_BEFORE_API_CALL': 320,
     'SQLALCHEMY_POOL_SIZE' : os.environ.get('SQLALCHEMY_POOL_SIZE', 30),
     'API_USERNAME': os.environ.get(f'{COIN}_USERNAME', 'shkeeper'),
     'API_PASSWORD': os.environ.get(f'{COIN}_PASSWORD', 'shkeeper'),
@@ -54,6 +59,7 @@ config = {
     'TIME_WALLET_CREATED': os.environ.get('TIME_WALLET_CREATED'),
     'COIN_NETWORK': os.environ.get(f"{COIN}_NETWORK", "main"),  # main, testnet, regtest
 }
+
 
 def is_test_network():
     if config['COIN_NETWORK'] == 'main':

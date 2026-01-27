@@ -50,3 +50,13 @@ def create_wallet(self):
     address = w.generate_address()
     return address
 
+@celery.on_after_configure.connect
+def setup_periodic_tasks(sender, **kwargs):
+    if config['EXTERNAL_DRAIN_CONFIG']:
+        from app.lib.aml.tasks import recheck_transactions
+
+        sender.add_periodic_task(
+            config['AML_RESULT_UPDATE_PERIOD'],
+            recheck_transactions.s(),
+            name="Recheck AML transactions periodically"
+        )
