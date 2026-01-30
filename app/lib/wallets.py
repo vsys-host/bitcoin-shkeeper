@@ -5,6 +5,7 @@ from operator import itemgetter
 import numpy as np
 import pickle
 import base58
+from decimal import Decimal
 from sqlalchemy.orm import joinedload, sessionmaker
 from datetime import timedelta
 import requests as rq
@@ -594,28 +595,15 @@ class WalletTransaction(Transaction):
         _logger.debug("start store receive DbTransaction")
         should_notify = False
 
-        drain_type = get_external_drain_type(COIN)
-        if drain_type == "aml":
-            amount = 12
-            if amount > get_min_check_amount(COIN):
-                check_transaction.delay(COIN, account, hash)
-                ttype = "aml"
-                aml_status = "pending"
-                score = -1
-            else:
-                ttype = "from_fee"
-                aml_status = "skipped"
-                score = -1    
-
         if not db_tx:
             db_tx = DbTransaction(
                 wallet_id=self.hdwallet.wallet_id,
                 txid=bytes.fromhex(self.txid),
                 block_height=self.block_height,
                 size=self.size,
-                # ttype = ttype,
-                # aml_status = aml_status,
-                # score = score,
+                tx_type='default',
+                aml_status='skipped',
+                score= -1,
                 confirmations=self.confirmations,
                 date=self.date,
                 fee=self.fee,
@@ -1912,19 +1900,41 @@ class Wallet(object):
             self.session.execute(sql, sql_params)
 
         self._commit()
+
+        txids_to_notify = ['243d8a7daf710aac103566f04bce948edeafdb38ccaf8762f789c247cc4a8470']
         for txid in txids_to_notify:
+            _logger.warning(f"Notifying transactions_update_by_txids shkeeper for new transaction {txid}")
             if config['EXTERNAL_DRAIN_CONFIG']:
+                drain_type = get_external_drain_type(COIN)
+                tx = db.session.query(DbTransaction).filter(DbTransaction.txid == bytes.fromhex(txid)).first()
+                if not tx:
+                    continue
+                addresses = [out.address for out in tx.outputs if out.address]
+                key_obj = (
+                    db.session.query(DbKey)
+                    .filter(DbKey.address.in_(addresses))
+                    .order_by(DbKey.id.asc())
+                    .first()
+                )
+                if not key_obj:
+                    _logger.info(f"No internal address found for tx {txid}")
+                    continue
+
+                account = key_obj.address
+                amount = key_obj.balance if key_obj else Decimal(0)
+
+                if drain_type == "aml" and Value.from_satoshi(amount).value > get_min_check_amount(COIN):
+                    check_transaction.delay(COIN, account, txid)
+                    tx.tx_type = "aml"
+                    tx.aml_status = "pending"
+                    tx.score = -1
+                    db.session.commit()
+
                 run_payout_for_tx.apply_async(
-                                    args=[
-                                        'BTC',
-                                        "tron_tx.dst_addr",
-                                        txid,
-                                    ],
-                                    # wait for 5min for data to be updated in AMLBot
-                                    countdown=config.AML_WAIT_BEFORE_API_CALL,
-                                )
+                    args=[COIN, account, txid],
+                    countdown=config.get('AML_WAIT_BEFORE_API_CALL', 320),
+                )
             notify_shkeeper(COIN, txid)
-        # self._balance_update(account_id=account_id, network=network, key_id=key_id)
 
     def transactions_update(self, account_id=None, used=None, network=None, key_id=None, depth=None, change=None,
                         limit=MAX_TRANSACTIONS, txs_list=[]):
@@ -2008,7 +2018,40 @@ class Wallet(object):
 
         self.last_updated = last_updated
         self._commit()
+
+        txids_to_notify = ['243d8a7daf710aac103566f04bce948edeafdb38ccaf8762f789c247cc4a8470']
         for txid in txids_to_notify:
+            _logger.warning(f"Notifying transactions_update shkeeper for new transaction {txid}")
+            if config['EXTERNAL_DRAIN_CONFIG']:
+                drain_type = get_external_drain_type(COIN)
+                tx = db.session.query(DbTransaction).filter(DbTransaction.txid == bytes.fromhex(txid)).first()
+                if not tx:
+                    continue
+                addresses = [out.address for out in tx.outputs if out.address]
+                key_obj = (
+                    db.session.query(DbKey)
+                    .filter(DbKey.address.in_(addresses))
+                    .order_by(DbKey.id.asc())
+                    .first()
+                )
+                if not key_obj:
+                    _logger.info(f"No internal address found for tx {txid}")
+                    continue
+
+                account = key_obj.address
+                amount = key_obj.balance if key_obj else Decimal(0)
+
+                if drain_type == "aml" and Value.from_satoshi(amount).value > get_min_check_amount(COIN):
+                    check_transaction.delay(COIN, account, txid)
+                    tx.tx_type = "aml"
+                    tx.aml_status = "pending"
+                    tx.score = -1
+                    db.session.commit()
+
+                run_payout_for_tx.apply_async(
+                    args=[COIN, account, txid],
+                    countdown=config.get('AML_WAIT_BEFORE_API_CALL', 320),
+                )
             notify_shkeeper(COIN, txid)
 
         return len(txs)

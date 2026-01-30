@@ -4,105 +4,95 @@ from decimal import Decimal
 # from sqlalchemy.orm import Session
 
 from app.config import config, COIN
-from app.db_import import db 
+# from app.db_import import db 
+from app.models import DbKey, db
+# from app.wallet import CoinWallet
+from app.lib.values import Value, decimal_value_to_satoshi
+import decimal
 # from ...db import engine
 from ...logging import logger
 from app.models import DbAmlPayout
-# from ...utils import short_txid
-
+from app.logging import logger
 
 class AmlWallet():
     def __init__(self, symbol=COIN):
-        super().__init__(symbol)
+        self.symbol = symbol
+
+    def balance_of(self, address):
+        key_record = db.session.query(DbKey).filter(DbKey.address == address).first()
+        if key_record:
+            print("Found key:", key_record)
+        else:
+            print("Key not found for address", address)
+        amount = key_record.balance if key_record else Decimal(0)
+        # amount_converted = Value.from_satoshi(amount).value
+        return amount
 
     def payout_for_tx(self, tx_id, account):
+        from app.wallet import CoinWallet
         from .functions import build_payout_list
 
-        drain_results = []
+        logger.info(f"===== BTC AmlWallet.payout_for_tx {tx_id} {account} =====")
 
         external_drain_list = build_payout_list(self.symbol, tx_id)
-        logger.debug(f"{external_drain_list=}")
+        logger.info(f"external_drain_list: {external_drain_list}")
         if not external_drain_list:
+            logger.warning("No payouts to process, exiting method")
             return False
 
         account_balance = self.balance_of(account)
-        logger.debug(f"{account_balance=} {self.symbol=}")
+        input_key_id = db.session.query(DbKey).filter(DbKey.address == account).first().id
+        logger.info(f"Account balance for {account}: {account_balance} {self.symbol} {input_key_id}")
 
-        logger.debug("BTC workflow")
-        if account_balance < config.TRX_MIN_TRANSFER_THRESHOLD:
-            # logger.warning(
-            #     f"Balance {account_balance} is lower "
-            #     f"than {config.TRX_MIN_TRANSFER_THRESHOLD=}, skip draining"
-            # )
-            return False
-        logger.debug(f"{config.TRX_MIN_TRANSFER_THRESHOLD=} passed")
+        outputs = [(address, int(orig_amount)) for address, amount, orig_amount in external_drain_list]
+        for address, satoshi_amount in outputs:
+            logger.info(f"Prepared payout to {address}: {satoshi_amount} satoshi")
 
-        bandwidth_cost = (
-            config.TRX_PER_BANDWIDTH_UNIT * config.BANDWIDTH_PER_TRX_TRANSFER
-        )
-        total_payout_bandwidth_cost = bandwidth_cost * len(external_drain_list)
-        for i in range(len(external_drain_list)):
-            external_drain_list[i][1] = external_drain_list[i][1] - bandwidth_cost
+        payout_results = []
+        try:
+            wallet = CoinWallet().current_wallet()
+            tx = wallet.send(outputs, input_key_id=input_key_id)
+            tx.send()
+            txid_str = str(tx.txid)
+            logger.info(f"Transaction sent: {txid_str}")
 
-        total_payout_sum = Decimal(0)
-        for payout_destination in external_drain_list:
-            dst_addr, amount, orig_amount = payout_destination
-            total_payout_sum += amount
-            logger.debug(f"{dst_addr=} {amount=} {total_payout_sum=}")
-
-        if (total_payout_sum + total_payout_bandwidth_cost) > account_balance:
-            logger.warning(
-                f"Need to drain bigger amount {total_payout_sum}"
-                f"than have in balance {account_balance}, skip draining "
-            )
-            return False
-        logger.debug(f"{total_payout_sum=} <= {account_balance=}")
-        logger.info(f"{tx_id} payout started")
-        for payout_destination in external_drain_list:
-            dst_addr, amount, orig_amount = payout_destination
-            logger.debug(
-                f"Transfering {amount=} {self.symbol=} from {account=} to {dst_addr=}"
-            )
-            logger.debug(f"{account=} {self.bandwidth_of(account)=}")
-            try:
-                res = self.transfer(dst_addr, amount, src_address=account)
-            except ValidationError as e:
-                logger.error(f"error: {e}")
-                logger.error(
-                    f"balance of {account} is {self.balance_of(account)}, bandwidth is {self.bandwidth_of(account)}"
+            for address, amount, orig_amount in external_drain_list:
+                payout_results.append({
+                    "dest": address,
+                    "amount": float(amount),
+                    "status": "success",
+                    "txids": [txid_str],
+                    "orig_amount": float(orig_amount)
+                })
+                db_payout = DbAmlPayout(
+                    external_tx_id=txid_str,
+                    tx_id=tx_id,
+                    address=address,
+                    crypto=self.symbol,
+                    amount_calc=orig_amount,
+                    amount_send=amount,
+                    status="success",
                 )
-                return False
-            logger.debug(f"Transfer result {res=}")
-
-            # with Session(engine) as session:
-            payout = DbAmlPayout(
-                external_tx_id=res["txids"][0],
-                tx_id=tx_id,
-                address=dst_addr,
-                crypto=self.symbol,
-                amount_calc=orig_amount,
-                amount_send=amount,
-                status=res["status"],
-            )
-            logger.debug(f"Writing payout to DB: {payout}...")
-            db.session.add(payout)
+                db.session.add(db_payout)
             db.session.commit()
-            db.session.refresh(payout)
-            logger.debug("Writing payout to DB: done!")
 
-            drain_results.append(
-                {
-                    "dest": payout.address,
-                    "amount": amount,
-                    "status": res["status"],
-                    "txids": res["txids"],
-                }
-            )
-            # time.sleep(10)  # FIXME
+        except Exception as e:
+            logger.warning(f"Submit failed: {e}")
+            for address, amount, orig_amount in external_drain_list:
+                payout_results.append({
+                    "dest": address,
+                    "amount": float(amount),
+                    "status": "error",
+                    "txids": [],
+                    "orig_amount": float(orig_amount)
+                })
 
-        for payout in drain_results:
+        for payout in payout_results:
+            txid_log = payout.get('txids')[0] if payout.get('txids') else ''
             logger.info(
-                f"{tx_id} payment sent: {payout['amount']} {self.symbol} -> {payout['dest']} ({payout['txids'][0]})"
+                f"{tx_id}: Sent {payout['amount']} {self.symbol} -> {payout['dest']} "
+                f"({txid_log}), status: {payout['status']}"
             )
-        logger.info(f"{tx_id} payout complete")
-        return drain_results
+
+        logger.info(f"{tx_id} BTC payout process complete")
+        return payout_results

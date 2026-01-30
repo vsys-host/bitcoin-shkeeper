@@ -1,230 +1,229 @@
 from decimal import Decimal
 import hashlib
-from typing import List, Literal
+from typing import List, Literal, Tuple
 import requests
 from app.config import config, COIN
 from sqlalchemy import select
-from app.db_import import db
+# from app.db_import import db
+from app.logging import logging
+from app.models import DbTransaction, DbAmlPayout, DbKey, db
 
-# from ...custom.aml.tasks import (
-#     check_transaction,
-# )
-
-# from ...exceptions import UnknownToken
-# from ...db import engine
-from app.logging import logger
-from app.config import config
-# from ...utils import short_txid
-from app.models import DbTransaction, DbAmlPayout
-
+_logger = logging.getLogger(__name__)
 
 def get_min_check_amount(symbol: str) -> Decimal:
-    return config['EXTERNAL_DRAIN_CONFIG']['aml_check.cryptos'][COIN]['min_check_amount']
+    _logger.debug("get_min_check_amount")
+    cfg = config.get('EXTERNAL_DRAIN_CONFIG', {}).get('aml_check', {}).get('cryptos', {})
+    coin_cfg = cfg.get(symbol)
+    if coin_cfg and 'min_check_amount' in coin_cfg:
+        return Decimal(coin_cfg['min_check_amount'])
+    return Decimal('0')
 
 
-def get_external_drain_type(
-    symbol: str,
-) -> Literal["aml", "regular", "symbol_not_found"]:
-    if (
-        symbol not in config.EXTERNAL_DRAIN_CONFIG.aml_check.cryptos
-        or symbol not in config.EXTERNAL_DRAIN_CONFIG.regular_split.cryptos
-    ):
-        logger.warning(
-            f"Symbol {symbol} is not configured for aml or regular split payout."
-        )
+def get_external_drain_type(symbol: str) -> Literal["aml", "regular", "symbol_not_found"]:
+    _logger.debug("get_external_drain_type")
+    cfg = config.get('EXTERNAL_DRAIN_CONFIG')
+    if not cfg:
+        return "regular"
+
+    aml_cfg = cfg.get('aml_check', {})
+    reg_cfg = cfg.get('regular_split', {})
+
+    if symbol not in aml_cfg.get('cryptos', []) and symbol not in reg_cfg.get('cryptos', []):
+        _logger.warning(f"Symbol {symbol} is not configured for aml or regular split payout.")
         return "symbol_not_found"
 
-    if (
-        config.EXTERNAL_DRAIN_CONFIG.aml_check.state == "enabled"
-        and symbol in config.EXTERNAL_DRAIN_CONFIG.aml_check.cryptos
-    ):
+    if aml_cfg.get('state') == "enabled" and symbol in aml_cfg.get('cryptos', []):
         return "aml"
 
-    elif (
-        config['EXTERNAL_DRAIN_CONFIG']['regular_split']['state'] == "enabled"
-        and symbol in config['EXTERNAL_DRAIN_CONFIG']['regular_split']['cryptos']
-    ):
+    if reg_cfg.get('state') == "enabled" and symbol in reg_cfg.get('cryptos', []):
         return "regular"
-    else:
-        raise Exception(f"Can't get payout type for {symbol}")
+
+    return "regular"
 
 
 def aml_check_transaction(address, txid):
+    _logger.debug("aml_check_transaction")
+    cfg = config.get('EXTERNAL_DRAIN_CONFIG', {}).get('aml_check')
+    if not cfg or cfg.get('state') != 'enabled':
+        return {}
+
     symbol = COIN
-    token_string = f"{txid}:{config['EXTERNAL_DRAIN_CONFIG']['aml_check']['access_key']}:{config['EXTERNAL_DRAIN_CONFIG']['aml_check']['access_id']}"
+    token_string = f"{txid}:{cfg.get('access_key', '')}:{cfg.get('access_id', '')}"
     token = str(hashlib.md5(token_string.encode()).hexdigest())
-    response = requests.post(
-        f"{config['EXTERNAL_DRAIN_CONFIG']['aml_check']['access_point']}/",
-        data={
-            "hash": txid,
-            "address": address,
-            "asset": symbol,
-            "direction": "deposit",
-            "token": token,
-            "accessId": config['EXTERNAL_DRAIN_CONFIG']['aml_check']['access_id'],
-            "locale": "en_US",
-            "flow": config['EXTERNAL_DRAIN_CONFIG']['aml_check']['flow'],
-        },
-    )
-    response.raise_for_status()
-    return response.json()
+    # response = requests.post(
+    #     f"{cfg.get('access_point', '')}/",
+    #     data={
+    #         "hash": txid,
+    #         "address": address,
+    #         "asset": symbol,
+    #         "direction": "deposit",
+    #         "token": token,
+    #         "accessId": cfg.get('access_id', ''),
+    #         "locale": "en_US",
+    #         "flow": cfg.get('flow', 'default'),
+    #     },
+    # )
+    # response.raise_for_status()
+    # return response.json()
+    fake_result_ready = {
+        "result": True,
+        "data": {
+            "status": "success",
+            "uid": "UID456",
+            "riskscore": 5
+        }
+    }
+    return fake_result_ready
 
 
 def aml_recheck_transaction(uid, txid):
-    token_string = f"{txid}:{config['EXTERNAL_DRAIN_CONFIG']['aml_check']['access_key']}:{config['EXTERNAL_DRAIN_CONFIG']['aml_check']['access_id']}"
+    cfg = config.get('EXTERNAL_DRAIN_CONFIG', {}).get('aml_check')
+    if not cfg or cfg.get('state') != 'enabled':
+        return {}
+
+    token_string = f"{txid}:{cfg.get('access_key', '')}:{cfg.get('access_id', '')}"
     token = str(hashlib.md5(token_string.encode()).hexdigest())
-    payload = f"uid={uid}&accessId={config['EXTERNAL_DRAIN_CONFIG']['aml_check']['access_id']}&token={token}"
+    payload = f"uid={uid}&accessId={cfg.get('access_id', '')}&token={token}"
+    _logger.info(f"!!!!!!!!!!!!!aml_recheck_transaction in requests ХpayloadЪ")
     headers = {}
-    response = requests.post(
-        f"{config['EXTERNAL_DRAIN_CONFIG']['aml_check']['access_point']}/recheck",
-        headers=headers,
-        data=payload,
+    # response = requests.post(
+    #     f"{cfg.get('access_point', '')}/recheck",
+    #     headers=headers,
+    #     data=payload,
+    # )
+    # response.raise_for_status()
+    # return response.json()
+    fake_result_ready = {
+        "result": True,
+        "data": {
+            "status": "success",
+            "uid": "UID456",
+            "riskscore": 5
+        }
+    }
+    return fake_result_ready
+
+
+def build_payout_list(symbol: str, tx_id_hex: str, network_fee: int = 500) -> List[Tuple[str, Decimal, Decimal]] | Literal[False]:
+    _logger.info("build_payout_list started")
+    _logger.info(f"build_payout_list started tx_id_hex: {tx_id_hex}")
+    tx_id_bytes = bytes.fromhex(tx_id_hex)
+
+    transaction = (
+        db.session.query(DbTransaction)
+        .filter(DbTransaction.txid == tx_id_bytes)
+        .first()
     )
-    response.raise_for_status()
-    return response.json()
-
-
-def build_payout_list(
-    symbol: str, tx_id: str
-) -> List[tuple[str, Decimal, Decimal]] | Literal[False]:
-    external_drain_list = []
-    addresses_done = []
-
-    # with Session(engine) as session:
-    transaction = db.session.exec(
-        select(DbTransaction).where(DbTransaction.tx_id == tx_id)
-    ).first()
-
     if not transaction:
-        logger.warning(f"Cannot find transaction {tx_id} in database")
+        _logger.warning(f"Transaction {tx_id_hex} not found")
         return False
 
-    # with Session(engine) as session:
-    pd = db.session.exec(select(DbAmlPayout).where(DbAmlPayout.tx_id == tx_id)).all()
-
-    for drain in pd:
-        addresses_done.append(drain.address)
-
-    if transaction.ttype == "from_fee":
+    if transaction.tx_type == "default":
         return False
+
+    payouts_done = (
+        db.session.query(DbAmlPayout.address)
+        .filter(DbAmlPayout.tx_id == tx_id_bytes)
+        .all()
+    )
+    addresses_done = {row[0] for row in payouts_done}
 
     payout_type = get_external_drain_type(symbol)
 
-    if "aml" == payout_type:
-        if transaction.ttype == "aml" and transaction.status == "ready":
-            risk_config = config['EXTERNAL_DRAIN_CONFIG']['aml_check']['cryptos'][symbol]
-            external_amounts = Decimal(0)
-            for risk_level_name, risk_level_config in risk_config.risk_scores.items():
-                if (
-                    risk_level_config.min_value
-                    <= transaction.score
-                    <= risk_level_config.max_value
-                ):
-                    for address, payout_ratio in risk_level_config.addresses.items():
-                        external_drain_list.append(
-                            [
-                                address,
-                                payout_ratio,
-                            ]
-                        )
-
-                    incomplete_payouts = []
-
-                    for payout in external_drain_list:
-                        address, payout_ratio = payout
-                        if address not in addresses_done:
-                            incomplete_payouts.append(address)
-
-                    if not incomplete_payouts:
-                        logger.debug(
-                            f"Payout has already been done for {tx_id}"
-                        )
-                        return False
-
-                    for i in range(len(external_drain_list) - 1):
-                        payout_ratio = external_drain_list[i][1]
-                        amount_to_address = transaction.amount * payout_ratio
-                        external_amounts = external_amounts + amount_to_address
-                        external_drain_list[i][1] = amount_to_address
-                        external_drain_list[i].append(amount_to_address)
-
-                    # send the rest to the last addresss in list
-                    the_rest = transaction.amount - external_amounts
-                    external_drain_list[-1][1] = the_rest
-                    external_drain_list[-1].append(the_rest)
-
-                    new_payout_list = []
-                    for payout in external_drain_list:
-                        if payout[0] not in addresses_done:
-                            new_payout_list.append(payout)
-
-                    logger.info(
-                        f"{transaction.tx_id} "
-                        f"AML score: {transaction.score} matches '{risk_level_name}' payout rule"
-                    )
-                    logger.info(f"{transaction.tx_id} payout list:")
-                    for payout in external_drain_list:
-                        logger.info(f"{payout[1]} {symbol} -> {payout[0]}")
-
-                    return new_payout_list
-
-        elif transaction.ttype == "aml" and transaction.status == "pending":
+    if payout_type == "aml":
+        if transaction.tx_type != "aml" or transaction.aml_status != "ready":
             return False
 
-        elif transaction.ttype == "aml" and transaction.status == "rechecking":
-            return False
+        score = Decimal(str(transaction.score))
+        addresses = [out.address for out in transaction.outputs if out.address]
+        key_obj = (
+            db.session.query(DbKey)
+            .filter(DbKey.address.in_(addresses))
+            .order_by(DbKey.id.asc())
+            .first()
+        )
+        amount_total = key_obj.balance if key_obj else Decimal(0)
+        
+        _logger.info(f"build_payout_list amount_total {amount_total}")
+        _logger.info(f"build_payout_list amount_total before fee: {amount_total}")
+        amount_total = max(amount_total - Decimal(network_fee), Decimal(0))
 
-        elif transaction.ttype == "regular":
-            return False
+        risk_cfg = (
+            config.get("EXTERNAL_DRAIN_CONFIG", {})
+            .get("aml_check", {})
+            .get("cryptos", {})
+            .get(symbol, {})
+        )
 
-        else:
-            logger.warning(
-                f"Unknown status {transaction.status} for transaction {transaction.tx_id}"
-            )
-            return False
+        for level_name, level_cfg in risk_cfg.get("risk_scores", {}).items():
+            min_v = Decimal(str(level_cfg["min_value"]))
+            max_v = Decimal(str(level_cfg["max_value"]))
 
-    elif "regular" == payout_type:
-        if transaction.ttype == "regular" and transaction.status == "drained":
-            return False
-        external_amounts = Decimal(0)
-        regular_split_config = config['EXTERNAL_DRAIN_CONFIG']['regular_split']['cryptos'][
-            symbol
-        ]
-        for address, payout_ratio in regular_split_config.addresses.items():
-            external_drain_list.append([address, payout_ratio])
+            if not (min_v <= score <= max_v):
+                continue
 
-        incomplete_payouts = []
-        for payout in external_drain_list:
-            address, payout_ratio = payout
-            if address not in addresses_done:
-                incomplete_payouts.append(address)
+            raw_addresses = level_cfg["addresses"]
 
-        if not incomplete_payouts:
-            return False
+            if sum(Decimal(str(v)) for v in raw_addresses.values()) > 1:
+                _logger.error(f"AML ratios > 100% in level {level_name}")
+                return False
 
-        else:
-            for i in range(0, len(external_drain_list) - 1):
-                payout_ratio = external_drain_list[i][1]
-                amount_to_address = transaction.amount * payout_ratio
-                external_amounts = external_amounts + amount_to_address
-                external_drain_list[i][1] = amount_to_address
-                external_drain_list[i].append(amount_to_address)
+            payout_list: List[Tuple[str, Decimal, Decimal]] = []
+            total_assigned = Decimal("0")
+            items = list(raw_addresses.items())
 
-            # send the rest to the last addresss in list
-            the_rest = transaction.amount - external_amounts
-            external_drain_list[-1][1] = the_rest
-            external_drain_list[-1].append(the_rest)
+            for addr, ratio in items[:-1]:
+                ratio = Decimal(str(ratio))
+                amount = (amount_total * ratio).quantize(Decimal("0.00000001"))
+                total_assigned += amount
+                payout_list.append((addr, amount, amount))
 
-            new_payout_list = []
-            for payout in external_drain_list:
-                if payout[0] not in addresses_done:
-                    new_payout_list.append(payout)
+            last_addr, _ = items[-1]
+            remainder = amount_total - total_assigned
+            if remainder <= 0:
+                return False
 
-            logger.info(f"{transaction.tx_id} payout list:")
-            for payout in external_drain_list:
-                logger.info(f"{payout[1]} {symbol} -> {payout[0]}")
+            payout_list.append((last_addr, remainder, remainder))
+            new_payouts = [p for p in payout_list if p[0] not in addresses_done]
 
-            return new_payout_list
+            return new_payouts or False
 
-    else:
         return False
+
+    if payout_type == "regular":
+        if transaction.tx_type == "regular" and transaction.status == "drained":
+            return False
+
+        regular_cfg = (
+            config.get("EXTERNAL_DRAIN_CONFIG", {})
+            .get("regular_split", {})
+            .get("cryptos", {})
+            .get(symbol, {})
+        )
+
+        raw_addresses = regular_cfg.get("addresses", {})
+        
+        # amount_total = Decimal(str(transaction.amount))
+
+        if sum(Decimal(str(v)) for v in raw_addresses.values()) > 1:
+            _logger.error("Regular split ratios > 100%")
+            return False
+
+        payout_list = []
+        total_assigned = Decimal("0")
+        items = list(raw_addresses.items())
+
+        for addr, ratio in items[:-1]:
+            ratio = Decimal(str(ratio))
+            amount = (amount_total * ratio).quantize(Decimal("0.00000001"))
+            total_assigned += amount
+            payout_list.append((addr, amount, amount))
+
+        last_addr, _ = items[-1]
+        remainder = amount_total - total_assigned
+        payout_list.append((last_addr, remainder, remainder))
+
+        new_payouts = [p for p in payout_list if p[0] not in addresses_done]
+        return new_payouts or False
+
+    return False

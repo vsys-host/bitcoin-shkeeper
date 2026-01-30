@@ -135,7 +135,6 @@ class DbTransaction(db.Model):
     status = db.Column(db.String(20), default='new', index=True)
     tx_type = db.Column(db.String(255), nullable=True, index=True)
     uid = db.Column(db.String(255), nullable=True, index=True)
-    uid = db.Column(db.String(255), nullable=True, index=True)
     score = db.Column(db.Numeric(7, 5), default=-1)
     aml_status = db.Column(db.String(255), nullable=True, index=True)
     is_complete = db.Column(db.Boolean, default=True)
@@ -205,8 +204,8 @@ class DbAmlPayout(db.Model):
     __tablename__ = 'aml_payouts'
 
     id = db.Column(db.Integer, primary_key=True)
-    tx_id = db.Column(db.String(64), index=True)
-    external_tx_id = db.Column(db.String(64), index=True)
+    tx_id = db.Column(db.VARBINARY(33), index=True)
+    external_tx_id = db.Column(db.VARBINARY(33), index=True)
     status = db.Column(db.String(20), index=True)
     dtype = db.Column(db.String(20), index=True, nullable=True)
     crypto = db.Column(db.String(10))
