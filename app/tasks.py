@@ -53,7 +53,7 @@ def create_wallet(self):
 @celery.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
     cfg = config.get('EXTERNAL_DRAIN_CONFIG', {}).get('aml_check')
-    if cfg and cfg.get('state') == "enabled":
+    if cfg and cfg.get('state') == "enabled" and COIN == 'BTC':
         from app.lib.aml.tasks import recheck_transactions
 
         sender.add_periodic_task(

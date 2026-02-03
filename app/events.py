@@ -26,11 +26,10 @@ def log_loop():
     srv = Service(config['COIN_NETWORK'])
     latest_height = coin_wallet.get_last_block_number()
     # value = 917515
-    value = 4838840
-    # value = wallet.session.query(DbCacheVars.value).filter_by(
-    #     varname='last_scanned_block',
-    #     network_name=wallet.network.name
-    # ).scalar()
+    value = wallet.session.query(DbCacheVars.value).filter_by(
+        varname='last_scanned_block',
+        network_name=wallet.network.name
+    ).scalar()
     logger.info(f"DbCacheVars value {value}")
     if not value:
         logger.info(f"No last_scanned_block found, initializing with {latest_height}")

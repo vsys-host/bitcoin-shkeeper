@@ -1,14 +1,16 @@
 import time
 from sqlalchemy.orm import joinedload
-from sqlalchemy import select
 from app.celery_app import celery
 from app.db_import import db
 from app.models import DbTransaction, DbTransactionOutput, DbKey
 from app.logging import logger
+from app.config import config, COIN
 from app.lib.aml.functions import aml_check_transaction, aml_recheck_transaction
 
 
-def update_transaction_status(session, txid: bytes, uid: str, score: float, status: str):
+def update_transaction_status(
+    session, txid: bytes, uid: str, score: float, status: str
+):
     tx = session.query(DbTransaction).filter(DbTransaction.txid == txid).first()
     if not tx:
         logger.warning(f"Cannot find BTC tx {txid} in DB")
@@ -35,9 +37,18 @@ def find_address(tx: DbTransaction):
 
 
 def process_aml_result(txid: str, key, result: dict):
-    if result["result"] and result["data"].get("status") == "pending" and "uid" in result["data"]:
+    if (
+        result["result"]
+        and result["data"].get("status") == "pending"
+        and "uid" in result["data"]
+    ):
         return "rechecking", result["data"]["uid"], -1
-    elif result["result"] and "riskscore" in result["data"] and "uid" in result["data"] and result["data"]["status"] == "success":
+    elif (
+        result["result"]
+        and "riskscore" in result["data"]
+        and "uid" in result["data"]
+        and result["data"]["status"] == "success"
+    ):
         return "ready", result["data"]["uid"], result["data"]["riskscore"]
     else:
         logger.warning(f"Cannot update BTC transaction {txid}, result: {result}")
@@ -46,7 +57,11 @@ def process_aml_result(txid: str, key, result: dict):
 
 @celery.task(bind=True)
 def check_btc_transaction(self, txid: str):
-    tx = db.session.query(DbTransaction).filter(DbTransaction.txid == bytes.fromhex(txid)).first()
+    tx = (
+        db.session.query(DbTransaction)
+        .filter(DbTransaction.txid == bytes.fromhex(txid))
+        .first()
+    )
     if not tx:
         logger.warning(f"BTC tx {txid} not found in DB")
         return False
@@ -54,23 +69,32 @@ def check_btc_transaction(self, txid: str):
     keys = [out.key for out in tx.outputs if out.key]
     for key in keys:
         from app.lib.aml.tasks import run_payout_for_tx
+
         result = aml_check_transaction(key.address, txid)
         status, uid, score = process_aml_result(txid, key, result)
         if not status:
             continue
 
-        tx_db = update_transaction_status(db.session, bytes.fromhex(txid), uid, score, status)
+        tx_db = update_transaction_status(
+            db.session, bytes.fromhex(txid), uid, score, status
+        )
         if status == "ready" and tx_db:
             address = find_address(tx)
             if address:
-                run_payout_for_tx.delay(txid, address, key.id)
+                run_payout_for_tx.delay(COIN, address, txid)
                 logger.info(f"BTC tx {txid} for key {address} ready for payout")
     return True
 
 
 @celery.task(bind=True)
 def recheck_transaction(self, uid: str, txid: str):
-    tx = db.session.query(DbTransaction).filter(DbTransaction.txid == bytes.fromhex(txid)).first()
+    txid_bytes = bytes.fromhex(txid) if isinstance(txid, str) else txid
+    logger.warning(f"recheck_transaction txid_bytes {txid_bytes}")
+    tx = (
+        db.session.query(DbTransaction)
+        .filter(DbTransaction.txid == txid_bytes)
+        .first()
+    )
     if not tx:
         logger.warning(f"BTC tx {txid} not found in DB")
         return False
@@ -78,16 +102,19 @@ def recheck_transaction(self, uid: str, txid: str):
     keys = [out.key for out in tx.outputs if out.key]
     for key in keys:
         from app.lib.aml.tasks import run_payout_for_tx
+
         result = aml_recheck_transaction(uid, txid)
         status, uid, score = process_aml_result(txid, key, result)
         if not status:
             continue
 
-        tx_db = update_transaction_status(db.session, bytes.fromhex(txid), uid, score, status)
+        tx_db = update_transaction_status(
+            db.session, txid_bytes, uid, score, status
+        )
         if status == "ready" and tx_db:
             address = find_address(tx)
             if address:
-                run_payout_for_tx.delay(txid, address, key.id)
+                run_payout_for_tx.delay(COIN, address, txid)
                 logger.info(f"BTC tx {txid} for key {address} ready for payout")
     return True
 
@@ -96,10 +123,12 @@ def recheck_transaction(self, uid: str, txid: str):
 def recheck_transactions(self):
     logger.info("Rechecking BTC transactions...")
 
-    txs = db.session.query(DbTransaction) \
-        .options(joinedload(DbTransaction.outputs).joinedload(DbTransactionOutput.key)) \
-        .filter(DbTransaction.aml_status.in_(["rechecking", "pending"])) \
+    txs = (
+        db.session.query(DbTransaction)
+        .options(joinedload(DbTransaction.outputs).joinedload(DbTransactionOutput.key))
+        .filter(DbTransaction.aml_status.in_(["rechecking", "pending"]))
         .all()
+    )
 
     for tx in txs:
         if tx.aml_status == "rechecking":
@@ -112,6 +141,7 @@ def recheck_transactions(self):
 @celery.task(bind=True)
 def run_payout_for_tx(self, symbol, account, tx_id):
     from app.lib.aml.classes import AmlWallet
+
     wallet = AmlWallet(symbol=symbol)
     results = wallet.payout_for_tx(tx_id, account)
     return results
@@ -120,6 +150,7 @@ def run_payout_for_tx(self, symbol, account, tx_id):
 @celery.task(bind=True)
 def check_transaction(self, symbol: str, account: str, txid: str):
     from app.lib.aml.tasks import run_payout_for_tx
+
     result = aml_check_transaction(account, txid)
     status, uid, score = process_aml_result(txid, None, result)
     if not status:
@@ -127,7 +158,11 @@ def check_transaction(self, symbol: str, account: str, txid: str):
         return False
 
     time.sleep(5)
-    tx_db = db.session.query(DbTransaction).filter(DbTransaction.txid == bytes.fromhex(txid)).first()
+    tx_db = (
+        db.session.query(DbTransaction)
+        .filter(DbTransaction.txid == bytes.fromhex(txid))
+        .first()
+    )
     if not tx_db:
         logger.warning(f"Transaction {txid} not found in DB")
         return False

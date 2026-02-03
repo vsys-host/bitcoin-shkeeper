@@ -1,20 +1,10 @@
 from decimal import Decimal
-
-# import tronpy
-# from sqlalchemy.orm import Session
-
-from app.config import config, COIN
-# from app.db_import import db 
-from app.models import DbKey, db
-# from app.wallet import CoinWallet
-from app.lib.values import Value, decimal_value_to_satoshi
-import decimal
-# from ...db import engine
-from ...logging import logger
-from app.models import DbAmlPayout
+from app.config import COIN
 from app.logging import logger
+from app.models import DbAmlPayout, DbKey, db
 
-class AmlWallet():
+
+class AmlWallet:
     def __init__(self, symbol=COIN):
         self.symbol = symbol
 
@@ -25,7 +15,6 @@ class AmlWallet():
         else:
             print("Key not found for address", address)
         amount = key_record.balance if key_record else Decimal(0)
-        # amount_converted = Value.from_satoshi(amount).value
         return amount
 
     def payout_for_tx(self, tx_id, account):
@@ -40,59 +29,92 @@ class AmlWallet():
             logger.warning("No payouts to process, exiting method")
             return False
 
-        account_balance = self.balance_of(account)
-        input_key_id = db.session.query(DbKey).filter(DbKey.address == account).first().id
-        logger.info(f"Account balance for {account}: {account_balance} {self.symbol} {input_key_id}")
+        tx_id_bytes = bytes.fromhex(tx_id) if isinstance(tx_id, str) else tx_id
+        key = db.session.query(DbKey).filter(DbKey.address == account).first()
+        if not key:
+            logger.error(f"Key not found for address {account}")
+            return False
 
-        outputs = [(address, int(orig_amount)) for address, amount, orig_amount in external_drain_list]
-        for address, satoshi_amount in outputs:
-            logger.info(f"Prepared payout to {address}: {satoshi_amount} satoshi")
+        input_key_id = key.id
+
+        outputs = [(address, int(orig_amount)) for address, _, orig_amount in external_drain_list]
 
         payout_results = []
+
         try:
             wallet = CoinWallet().current_wallet()
-            tx = wallet.send(outputs, input_key_id=input_key_id)
-            tx.send()
+            tx = wallet.send(outputs, input_key_id=input_key_id, allow_partial=True)
             txid_str = str(tx.txid)
-            logger.info(f"Transaction sent: {txid_str}")
+            txid_bytes = bytes.fromhex(txid_str)
 
             for address, amount, orig_amount in external_drain_list:
-                payout_results.append({
-                    "dest": address,
-                    "amount": float(amount),
-                    "status": "success",
-                    "txids": [txid_str],
-                    "orig_amount": float(orig_amount)
-                })
-                db_payout = DbAmlPayout(
-                    external_tx_id=txid_str,
-                    tx_id=tx_id,
-                    address=address,
-                    crypto=self.symbol,
-                    amount_calc=orig_amount,
-                    amount_send=amount,
-                    status="success",
+                db.session.add(
+                    DbAmlPayout(
+                        external_tx_id=txid_bytes,
+                        tx_id=tx_id_bytes,
+                        address=address,
+                        crypto=self.symbol,
+                        amount_calc=orig_amount,
+                        amount_send=amount,
+                        status="pending",
+                    )
                 )
-                db.session.add(db_payout)
+
+                payout_results.append(
+                    {
+                        "dest": address,
+                        "amount": float(amount),
+                        "status": "pending",
+                        "txids": [txid_str],
+                        "orig_amount": float(orig_amount),
+                    }
+                )
+
             db.session.commit()
 
+            tx.send()
+            logger.info(f"Transaction broadcasted: {txid_str}")
+
+            (
+                db.session.query(DbAmlPayout)
+                .filter(DbAmlPayout.external_tx_id == txid_bytes)
+                .update({"status": "success"})
+            )
+            db.session.commit()
+
+            for p in payout_results:
+                p["status"] = "success"
+
         except Exception as e:
-            logger.warning(f"Submit failed: {e}")
+            logger.exception("Payout failed")
+
+            db.session.rollback()
+
+            if "txid_str" in locals():
+                (
+                    db.session.query(DbAmlPayout)
+                    .filter(DbAmlPayout.external_tx_id == txid_bytes)
+                    .update({"status": "error"})
+                )
+                db.session.commit()
+
             for address, amount, orig_amount in external_drain_list:
-                payout_results.append({
-                    "dest": address,
-                    "amount": float(amount),
-                    "status": "error",
-                    "txids": [],
-                    "orig_amount": float(orig_amount)
-                })
+                payout_results.append(
+                    {
+                        "dest": address,
+                        "amount": float(amount),
+                        "status": "error",
+                        "txids": [],
+                        "orig_amount": float(orig_amount),
+                    }
+                )
 
         for payout in payout_results:
-            txid_log = payout.get('txids')[0] if payout.get('txids') else ''
+            txid_log = payout.get("txids")[0] if payout.get("txids") else ""
             logger.info(
                 f"{tx_id}: Sent {payout['amount']} {self.symbol} -> {payout['dest']} "
                 f"({txid_log}), status: {payout['status']}"
             )
 
-        logger.info(f"{tx_id} BTC payout process complete")
+        logger.info(f"BTC payout process {tx_id}  complete payout_for_tx {payout_results}")
         return payout_results

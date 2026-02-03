@@ -18,8 +18,7 @@ DB_NAME_MAP = {
     "DOGE": "dogecoin-shkeeper",
 }
 FULLNODE_URL =  {
-                  "BTC": "http://bitcoinuser:bitcoinpass@195.66.213.33:18332/",
-                  # "BTC": "http://shkeeper:shkeeper@fullnode.bitcoin.shkeeper.io:8332",
+                  "BTC": "http://shkeeper:shkeeper@fullnode.bitcoin.shkeeper.io:8332",
                   "LTC": "http://shkeeper:shkeeper@fullnode.litecoin.shkeeper.io"
                 }
 BASE_WALLET_PATHS = {
@@ -27,68 +26,14 @@ BASE_WALLET_PATHS = {
     "LTC": "/root/.litecoin/shkeeper/wallet.dat",
     "DOGE": "/root/.dogecoin/shkeeper/wallet.dat",
 }
-# external_raw = os.environ.get("EXTERNAL_DRAIN_CONFIG")
-# if external_raw:
-#     try:
-#         EXTERNAL_DRAIN_CONFIG = json.loads(external_raw)
-#     except Exception:
-#         EXTERNAL_DRAIN_CONFIG = None
-# else:
-#     EXTERNAL_DRAIN_CONFIG = None
-
-# remove
-EXTERNAL_DRAIN_CONFIG = {
-    "aml_check": {
-        "state": "enabled",
-        "access_point": "https://example.com",
-        "access_id": "access_id",
-        "access_key": "access_key",
-        "flow": "default",
-        "cryptos": {
-            "BTC": {
-                "min_check_amount": 0.001,
-                "risk_scores": {
-                    "low": {
-                        "min_value": 0,
-                        "max_value": 30,
-                        "addresses": {
-                            "tb1qcvmrnn9c67y0rwl3944z0evlpwmnllvrcshwqz": 0.25,
-                            "tb1q2t06ptmj8zqx5shcqeye4znjt9s94lnj2nqzkc": 0.75,
-                        },
-                    },
-                    "medium": {
-                        "min_value": 31,
-                        "max_value": 70,
-                        "addresses": {
-                            "tb1qaddress3...": 0.7,
-                            "tb1qaddress4...": 0.3,
-                        },
-                    },
-                    "high": {
-                        "min_value": 71,
-                        "max_value": 100,
-                        "addresses": {
-                            "tb1qaddress5...": 0.6,
-                            "tb1qaddress6...": 0.4,
-                        },
-                    },
-                },
-            },
-        },
-    },
-    "regular_split": {
-        "state": "enabled",
-        "cryptos": {
-            "BTC": {
-                "addresses": {
-                    "tb1qregular1...": 0.6,
-                    "tb1qregular2...": 0.4,
-                },
-                "min_check_amount": 0.001,
-            }
-        },
-    },
-}
+external_raw = os.environ.get("EXTERNAL_DRAIN_CONFIG")
+if external_raw:
+    try:
+        EXTERNAL_DRAIN_CONFIG = json.loads(external_raw)
+    except Exception:
+        EXTERNAL_DRAIN_CONFIG = None
+else:
+    EXTERNAL_DRAIN_CONFIG = None
 
 config = {
     'FULLNODE_URL': os.environ.get('FULLNODE_URL', FULLNODE_URL[COIN]),
@@ -105,7 +50,6 @@ config = {
     ),
     # ... aml_config
     'EXTERNAL_DRAIN_CONFIG': EXTERNAL_DRAIN_CONFIG,
-    'DELAY_AFTER_FEE_TRANSFER': 60,
     'AML_RESULT_UPDATE_PERIOD': 120,
     'AML_WAIT_BEFORE_API_CALL': 320,
     # ...
@@ -123,7 +67,7 @@ config = {
     'MIN_CONFIRMS': os.environ.get('MIN_CONFIRMS', "1"),
     'WALLET_DAT_PATH': os.environ.get('WALLET_DAT_PATH', BASE_WALLET_PATHS[COIN]),
     'TIME_WALLET_CREATED': os.environ.get('TIME_WALLET_CREATED'),
-    'COIN_NETWORK': os.environ.get(f"{COIN}_NETWORK", "testnet"),  # main, testnet, regtest
+    'COIN_NETWORK': os.environ.get(f"{COIN}_NETWORK", "main"),  # main, testnet, regtest
 }
 
 

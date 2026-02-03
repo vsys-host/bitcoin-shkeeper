@@ -594,8 +594,10 @@ class WalletTransaction(Transaction):
 
         _logger.debug("start store receive DbTransaction")
         should_notify = False
-
+        _logger.warning("start store receive DbTransaction")
         if not db_tx:
+            _logger.warning(f"start store receive DbTransaction self.input_total {self.input_total}")
+            _logger.warning(f"start store receive DbTransaction self.output_total {self.output_total}")
             db_tx = DbTransaction(
                 wallet_id=self.hdwallet.wallet_id,
                 txid=bytes.fromhex(self.txid),
@@ -1900,41 +1902,58 @@ class Wallet(object):
             self.session.execute(sql, sql_params)
 
         self._commit()
-
-        txids_to_notify = ['243d8a7daf710aac103566f04bce948edeafdb38ccaf8762f789c247cc4a8470']
         for txid in txids_to_notify:
-            _logger.warning(f"Notifying transactions_update_by_txids shkeeper for new transaction {txid}")
-            if config['EXTERNAL_DRAIN_CONFIG']:
-                drain_type = get_external_drain_type(COIN)
-                tx = db.session.query(DbTransaction).filter(DbTransaction.txid == bytes.fromhex(txid)).first()
-                if not tx:
-                    continue
-                addresses = [out.address for out in tx.outputs if out.address]
-                key_obj = (
-                    db.session.query(DbKey)
-                    .filter(DbKey.address.in_(addresses))
-                    .order_by(DbKey.id.asc())
-                    .first()
-                )
-                if not key_obj:
-                    _logger.info(f"No internal address found for tx {txid}")
-                    continue
-
-                account = key_obj.address
-                amount = key_obj.balance if key_obj else Decimal(0)
-
-                if drain_type == "aml" and Value.from_satoshi(amount).value > get_min_check_amount(COIN):
-                    check_transaction.delay(COIN, account, txid)
-                    tx.tx_type = "aml"
-                    tx.aml_status = "pending"
-                    tx.score = -1
-                    db.session.commit()
-
-                run_payout_for_tx.apply_async(
-                    args=[COIN, account, txid],
-                    countdown=config.get('AML_WAIT_BEFORE_API_CALL', 320),
-                )
+            self.check_aml_transaction(txid)
             notify_shkeeper(COIN, txid)
+
+    def check_aml_transaction(self, txid):
+        if COIN != 'BTC':
+            return
+        if config['EXTERNAL_DRAIN_CONFIG']:
+            drain_type = get_external_drain_type(COIN)
+            _logger.warning(f"Run payout for tx txid {txid}")
+            _logger.warning(f"NRun payout for drain_type {drain_type}")
+            tx = db.session.query(DbTransaction).filter(DbTransaction.txid == bytes.fromhex(txid)).first()
+            if not tx:
+                return
+                
+            addresses = [out.address for out in tx.outputs if out.address]
+            key_obj = (
+                db.session.query(DbKey)
+                .filter(DbKey.address.in_(addresses))
+                .order_by(DbKey.id.asc())
+                .first()
+            )
+            if not key_obj:
+                _logger.info(f"No internal address found for tx {txid}")
+                return
+
+            account = key_obj.address
+            _logger.warning(f"Run payout for {account}")
+            min_confirms = config.get('MIN_CONFIRMS', 0)
+            amount = (
+                db.session.query(func.coalesce(func.sum(DbTransactionOutput.value), 0))
+                .join(DbTransaction, DbTransaction.id == DbTransactionOutput.transaction_id)
+                .filter(
+                    DbTransactionOutput.key_id == key_obj.id,
+                    DbTransactionOutput.spent.is_(False),
+                    DbTransaction.confirmations >= min_confirms
+                )
+                .scalar()
+            )    
+            _logger.warning(f"Run payout for amount {amount}")
+            if drain_type == "aml" and Value.from_satoshi(amount).value > get_min_check_amount(COIN):
+                _logger.warning(f"Notifying drain_type {drain_type} aml")
+                check_transaction.delay(COIN, account, txid)
+                tx.tx_type = "aml"
+                tx.aml_status = "pending"
+                tx.score = -1
+                db.session.commit()
+
+            run_payout_for_tx.apply_async(
+                args=[COIN, account, txid],
+                countdown=config.get('AML_WAIT_BEFORE_API_CALL', 320),
+            )
 
     def transactions_update(self, account_id=None, used=None, network=None, key_id=None, depth=None, change=None,
                         limit=MAX_TRANSACTIONS, txs_list=[]):
@@ -2018,40 +2037,8 @@ class Wallet(object):
 
         self.last_updated = last_updated
         self._commit()
-
-        txids_to_notify = ['243d8a7daf710aac103566f04bce948edeafdb38ccaf8762f789c247cc4a8470']
         for txid in txids_to_notify:
-            _logger.warning(f"Notifying transactions_update shkeeper for new transaction {txid}")
-            if config['EXTERNAL_DRAIN_CONFIG']:
-                drain_type = get_external_drain_type(COIN)
-                tx = db.session.query(DbTransaction).filter(DbTransaction.txid == bytes.fromhex(txid)).first()
-                if not tx:
-                    continue
-                addresses = [out.address for out in tx.outputs if out.address]
-                key_obj = (
-                    db.session.query(DbKey)
-                    .filter(DbKey.address.in_(addresses))
-                    .order_by(DbKey.id.asc())
-                    .first()
-                )
-                if not key_obj:
-                    _logger.info(f"No internal address found for tx {txid}")
-                    continue
-
-                account = key_obj.address
-                amount = key_obj.balance if key_obj else Decimal(0)
-
-                if drain_type == "aml" and Value.from_satoshi(amount).value > get_min_check_amount(COIN):
-                    check_transaction.delay(COIN, account, txid)
-                    tx.tx_type = "aml"
-                    tx.aml_status = "pending"
-                    tx.score = -1
-                    db.session.commit()
-
-                run_payout_for_tx.apply_async(
-                    args=[COIN, account, txid],
-                    countdown=config.get('AML_WAIT_BEFORE_API_CALL', 320),
-                )
+            self.check_aml_transaction(txid)
             notify_shkeeper(COIN, txid)
 
         return len(txs)
@@ -2220,7 +2207,7 @@ class Wallet(object):
 
     def transaction_create(self, output_arr, input_arr=None, input_key_id=None, account_id=None, network=None, fee=None,
                            min_confirms=1, max_utxos=None, locktime=0, number_of_change_outputs=1,
-                           random_output_order=True, replace_by_fee=False, fee_per_kb=None):
+                           random_output_order=True, replace_by_fee=False, fee_per_kb=None, allow_partial=False):
 
         if not isinstance(output_arr, list):
             raise WalletError("Output array must be a list of tuples with address and amount. "
@@ -2233,6 +2220,7 @@ class Wallet(object):
 
         # Create transaction and add outputs
         amount_total_output = 0
+
         transaction = WalletTransaction(hdwallet=self, account_id=account_id, network=network, locktime=locktime,
                                         replace_by_fee=replace_by_fee)
         transaction.outgoing_tx = True
@@ -2286,7 +2274,46 @@ class Wallet(object):
             selected_utxos = self.select_inputs(amount_total_output + fee_estimate, transaction.network.dust_amount,
                                                 input_key_id, account_id, network, min_confirms, max_utxos, False)
             if not selected_utxos:
-                raise WalletError("Not enough unspent transaction outputs found")
+                if allow_partial:
+                    selected_utxos = self.select_inputs(
+                        amount_total_output,
+                        transaction.network.dust_amount,
+                        input_key_id, account_id, network,
+                        min_confirms, max_utxos, False
+                    )
+
+                    if not selected_utxos:
+                        raise WalletError("No UTXO available for partial transaction")
+
+                    total_input = sum(utxo.value for utxo in selected_utxos)
+
+                    last_tx_output = transaction.outputs[-1]
+                    last_value = last_tx_output.value
+
+                    max_fee_deductible = max(0, total_input - (amount_total_output - last_value))
+                    adjusted_fee = min(fee_estimate, max_fee_deductible)
+
+                    new_last_value = max(0, last_value - adjusted_fee)
+                    last_tx_output.value = new_last_value
+
+                    amount_total_output = sum(o.value for o in transaction.outputs)
+                    fee_estimate = total_input - amount_total_output
+                    tx_size = transaction.estimate_size(number_of_change_outputs=0)
+                    min_relay_fee = int((tx_size / 1000.0) * transaction.fee_per_kb)
+
+                    if fee_estimate < min_relay_fee:
+                        deficit = min_relay_fee - fee_estimate
+
+                        if last_tx_output.value - deficit <= transaction.network.dust_amount:
+                            raise WalletError("Not enough funds to cover minimal relay fee")
+
+                        last_tx_output.value -= deficit
+                        fee_estimate += deficit
+                        amount_total_output -= deficit
+
+                else:
+                    raise WalletError("Not enough unspent transaction outputs found")
+
             for utxo in selected_utxos:
                 _logger.info(f"Transaction selected_utxos {selected_utxos}")
                 amount_total_input += utxo.value
@@ -2462,7 +2489,7 @@ class Wallet(object):
 
     def send(self, output_arr, input_arr=None, input_key_id=None, account_id=None, network=None, fee=None,
              min_confirms=1, priv_keys=None, max_utxos=None, locktime=0, broadcast=False, number_of_change_outputs=1,
-             random_output_order=True, replace_by_fee=False, fee_per_kb=None):
+             random_output_order=True, replace_by_fee=False, fee_per_kb=None, allow_partial=False):
 
         if input_arr and max_utxos and len(input_arr) > max_utxos:
             raise WalletError("Input array contains %d UTXO's but max_utxos=%d parameter specified" %
@@ -2470,7 +2497,7 @@ class Wallet(object):
 
         transaction = self.transaction_create(output_arr, input_arr, input_key_id, account_id, network, fee,
                                               min_confirms, max_utxos, locktime, number_of_change_outputs,
-                                              random_output_order, replace_by_fee, fee_per_kb=fee_per_kb)
+                                              random_output_order, replace_by_fee, fee_per_kb=fee_per_kb, allow_partial=allow_partial)
         _logger.info(f"Transaction {transaction}")
         transaction.sign(priv_keys)
         # Calculate exact fees and update change output if necessary
@@ -2504,7 +2531,7 @@ class Wallet(object):
         return self.send(outputs, input_key_id=input_key_id, account_id=account_id, network=network, fee=fee,
                          min_confirms=min_confirms, priv_keys=priv_keys, locktime=locktime, broadcast=broadcast,
                          number_of_change_outputs=number_of_change_outputs, random_output_order=random_output_order,
-                         replace_by_fee=replace_by_fee, fee_per_kb=fee_per_kb)
+                         replace_by_fee=replace_by_fee, fee_per_kb=fee_per_kb, allow_partial=False)
 
     def sweep(self, to_address, account_id=None, input_key_id=None, network=None, max_utxos=999, min_confirms=1,
               fee_per_kb=None, fee=None, locktime=0, broadcast=False, replace_by_fee=False):
@@ -2559,7 +2586,7 @@ class Wallet(object):
                               "outputs, use amount value = 0 to indicate a change/rest output")
 
         return self.send(to_list, input_arr, network=network, fee=fee, min_confirms=min_confirms, locktime=locktime,
-                         broadcast=broadcast, replace_by_fee=replace_by_fee)
+                         broadcast=broadcast, replace_by_fee=replace_by_fee, allow_partial=False)
 
     def wif(self, is_private=False, account_id=0):
         if is_private and self.main_key:
