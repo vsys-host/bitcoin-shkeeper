@@ -88,7 +88,7 @@ def events_listener():
             coin_wallet = CoinWallet()
             wallet = coin_wallet.wallet()
 
-            migration_flag = wallet.session.query(DbCacheVars).filter_by(
+            migration_flag = wallet.session.query(DbCacheVars.value).filter_by(
                 varname="wallet_migration_in_progress",
                 network_name=wallet.network.name
             ).scalar()

@@ -134,8 +134,12 @@ def save_doge_addresses(session, addresses, network):
         ))
 
 def time_wallet_created():
-    if config["TIME_WALLET_CREATED"]:
-        return int(config["TIME_WALLET_CREATED"])
+    configured_time = config.get("TIME_WALLET_CREATED")
+    if configured_time:
+        try:
+            return int(configured_time)
+        except (TypeError, ValueError):
+            logger.warning("Invalid TIME_WALLET_CREATED value in config: %r", configured_time)
     try:
         response = requests.post(
             "http://" + gethost(),
@@ -334,7 +338,7 @@ def _migrate_btc():
         closest = find_closest_block_by_timestamp(target_timestamp)
         print(f"Closest block height: {closest['height']}")
     except Exception as e:
-        print(f"Migration migrate_addreses failed: {e}")
+        print(f"Migration migrate_addresses failed: {e}")
         if bitcoind_proc:
             print("Terminate bitcoind_proc")
             bitcoind_proc.terminate()
@@ -460,7 +464,7 @@ def _migrate_ltc():
         closest = find_closest_block_by_timestamp(target_timestamp)
         print(f"Closest block height: {closest['height']}")
     except Exception as e:
-        print(f"Migration migrate_addreses failed: {e}")
+        print(f"Migration migrate_addresses failed: {e}")
         if litecoind_proc:
             print("Terminate litecoind_proc")
             litecoind_proc.terminate()
