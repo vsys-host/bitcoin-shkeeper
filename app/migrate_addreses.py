@@ -556,6 +556,7 @@ def _migrate_doge():
         "-disablewallet=0",
         "-deprecatedrpc=addresses",
         "-printtoconsole",
+        "-walletbroadcast=0",
         "-daemon=0"
     ]
     logger.info('migrate_addreses')
