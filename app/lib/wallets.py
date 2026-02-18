@@ -1264,20 +1264,30 @@ class Wallet(object):
             txid = tx.get('txid')
             tx_related_addresses = set()
 
+            # --- VOUT ---
             for vout in tx.get('vout', []):
-                addr = vout.get('scriptPubKey', {}).get('address')
-                if addr:
+                spk = vout.get('scriptPubKey', {})
+                addrs = spk.get('addresses') or []
+                if not addrs and spk.get('address'):
+                    addrs = [spk.get('address')]
+
+                for addr in addrs:
                     addresses_in_txs.add(addr)
-                    # Collect statistics here instead of separate iteration
                     if addr in wallet_addresses_set:
+                        # Collect statistics here instead of separate iteration
                         tx_related_addresses.add(addr)
                         related_utxo_count += 1
                         _logger.debug(f"[VOUT] TXID: {txid} → {addr}")
 
+            # --- VIN ---
             for vin in tx.get('vin', []):
                 prevout = vin.get('prevout', {})
-                addr = prevout.get('scriptPubKey', {}).get('address')
-                if addr:
+                spk = prevout.get('scriptPubKey', {})
+                addrs = spk.get('addresses') or []
+                if not addrs and spk.get('address'):
+                    addrs = [spk.get('address')]
+
+                for addr in addrs:
                     addresses_in_txs.add(addr)
                     if addr in wallet_addresses_set:
                         tx_related_addresses.add(addr)
