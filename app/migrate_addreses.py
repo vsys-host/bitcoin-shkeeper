@@ -444,6 +444,7 @@ def _migrate_ltc():
         "-disablewallet=0",
         "-deprecatedrpc=addresses",
         "-printtoconsole",
+        "-walletbroadcast=0",
         "-daemon=0"
     ]
     logger.info('migrate_addreses')
