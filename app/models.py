@@ -284,3 +284,11 @@ class DbCacheVars(db.Model):
     value = db.Column(db.String(255))
     type = db.Column(db.String(20))
     expires = db.Column(db.DateTime)
+
+class DbDogeMigrationWallet(db.Model):
+    __tablename__ = "doge_migration_wallets"
+
+    id = db.Column(db.Integer, primary_key=True)
+    address = db.Column(db.String(64), nullable=False, unique=True)
+    network = db.Column(db.String(16), nullable=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())

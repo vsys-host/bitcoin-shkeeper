@@ -4,10 +4,13 @@ import functools
 import logging
 from logging.handlers import RotatingFileHandler
 from app.lib.config.config import *
+from app.config import COIN
 
 _logger = logging.getLogger(__name__)
 
 def script_type_default(witness_type=None, locking_script=False):
+    if COIN == 'DOGE':
+        return 'p2pkh'
     if not witness_type:
         return 'p2wpkh'
     if witness_type == 'legacy':

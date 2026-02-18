@@ -837,7 +837,7 @@ class Wallet(object):
 
             w = cls(new_wallet_id, db_cache_uri=db_cache_uri, main_key_object=mk.key())
             w.key_for_path([], account_id=account_id, change=0, address_index=0)
-        else:  # scheme == 'single':
+        else:  # scheme == 'single': # DOGE
             if not key:
                 key = HDKey(network=network, depth=key_depth)
             mk = WalletKey.from_key(key=key, name=name, session=session, wallet_id=new_wallet_id, network=network,
@@ -909,9 +909,9 @@ class Wallet(object):
             network = DEFAULT_NETWORK
         if witness_type is None:
             witness_type = DEFAULT_WITNESS_TYPE
-        if network in ['dogecoin', 'dogecoin_testnet'] and witness_type != 'legacy':
+        if COIN == 'DOGE' and witness_type != 'legacy':    
             raise WalletError("Segwit is not supported for %s wallets" % network.capitalize())
-        elif network in ('dogecoin', 'dogecoin_testnet') and witness_type not in ('legacy', 'p2sh-segwit'):
+        elif COIN == 'DOGE' and witness_type not in ('legacy', 'p2sh-segwit'):
             raise WalletError("Pure segwit addresses are not supported for Dogecoin wallets. "
                               "Please use p2sh-segwit instead")
 
@@ -1209,14 +1209,14 @@ class Wallet(object):
     def new_key_change(self, name='', account_id=None, witness_type=None, network=None):
         return self.new_key(name=name, account_id=account_id, witness_type=witness_type, network=network, change=1)
 
-    def scan_key(self, key, txs_list):
+    def scan_key(self, key, txs_list, fixed_addresses):
         if isinstance(key, int):
             key = self.key(key)
         txs_found = False
         should_be_finished_count = 0
         while True:
             with log_time("transactions_update"):
-                n_new = self.transactions_update(key_id=key.id, txs_list=txs_list)
+                n_new = self.transactions_update(key_id=key.id, txs_list=txs_list, fixed_addresses=fixed_addresses)
             # _logger.warning(f"Found new transactions {n_new}")
             if n_new and n_new < MAX_TRANSACTIONS:
                 if should_be_finished_count:
@@ -1231,8 +1231,8 @@ class Wallet(object):
 
     def scan(self, scan_gap_limit=1, account_id=None, change=None, rescan_used=False, network=None, keys_ignore=None, block=''):
         network, account_id, _ = self._get_account_defaults(network, account_id)
-        if self.scheme != 'bip32' and scan_gap_limit < 2:
-            raise WalletError("The wallet scan() method is only available for BIP32 wallets")
+        # if self.scheme != 'bip32' and scan_gap_limit < 2:
+        #     raise WalletError("The wallet scan() method is only available for BIP32 wallets")
 
         if keys_ignore is None:
             keys_ignore = set()
@@ -1245,6 +1245,9 @@ class Wallet(object):
         start_time = time.time()
         txs_list = srv.getblocktransactions(block)
         txs = txs_list.get('tx', [])
+        fixed_addresses = None
+        if COIN == 'DOGE':
+           fixed_addresses = [addr[0] for addr in self.session.query(DbDogeMigrationWallet.address).all()]
         total_txs = len(txs)
         _logger.warning(f"Fetched {total_txs} transactions from block {block}")
 
@@ -1335,7 +1338,7 @@ class Wallet(object):
                             for attempt in range(MAX_RETRIES):
                                 try:
                                     with log_time(f"scan key started {key.address}"):
-                                        got_new = self.scan_key(key, txs_list)
+                                        got_new = self.scan_key(key, txs_list, fixed_addresses)
                                         _logger.warning("scan key finished")
                                     return (key.address_index, got_new)
                                 except OperationalError as e:
@@ -1907,7 +1910,7 @@ class Wallet(object):
         # self._balance_update(account_id=account_id, network=network, key_id=key_id)
 
     def transactions_update(self, account_id=None, used=None, network=None, key_id=None, depth=None, change=None,
-                        limit=MAX_TRANSACTIONS, txs_list=[]):
+                        limit=MAX_TRANSACTIONS, txs_list=None, fixed_addresses=None):
         network, account_id, acckey = self._get_account_defaults(network, account_id, key_id)
         if depth is None:
             depth = self.key_depth
@@ -1933,7 +1936,10 @@ class Wallet(object):
         txs_by_address = {}  # Track last tx per address for batch update
         for address in addresslist:
             after_txid = latest_txids.get(address, '')
-            new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
+            if COIN == 'DOGE':
+                new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list, fixed_addresses=fixed_addresses)
+            else:
+                new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
             txs += new_txs
             if new_txs and new_txs[-1].confirmations:
                 txs_by_address[address] = new_txs[-1].txid
@@ -2353,7 +2359,7 @@ class Wallet(object):
                                   "or lower fees")
 
             if self.scheme == 'single':
-                change_keys = [self.get_key(account_id, self.witness_type, network, change=1)]
+                change_keys = [self.get_key(account_id, self.witness_type, network, change=0)]
             else:
                 change_keys = self.get_keys(account_id, self.witness_type, network, change=1,
                                             number_of_keys=number_of_change_outputs)

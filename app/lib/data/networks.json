@@ -266,5 +266,88 @@
       "fee_max": 1000000,
       "priority": 8
     }
+  },
+  "DOGE": {
+    "lib_test":
+    {
+      "description": "Shkeeper Test",
+      "currency_name": "lib_test",
+      "currency_name_plural": "lib_test",
+      "currency_symbol": "T",
+      "currency_code": "TST",
+      "prefix_address": "90",
+      "prefix_address_p2sh": "95",
+      "prefix_bech32": "blt",
+      "prefix_wif": "99",
+      "prefixes_wif": [
+        ["2FFFACCC", "BC11", "public",  false, "legacy",      "p2pkh"],
+        ["2FFFACCC", "BC11", "public",  true,  "legacy",      "p2sh"],
+        ["2FFFADDD", "BC12", "private", false, "legacy",      "p2pkh"],
+        ["2FFFADDD", "BC12", "private", true,  "legacy",      "p2sh"],
+        ["2FFFAEEE", "BC13", "public",  false, "p2sh-segwit", "p2sh_p2wpkh"],
+        ["2FFFB100", "BC14", "public",  true,  "p2sh-segwit", "p2sh_p2wsh"],
+        ["2FFFB300", "BC15", "private", false, "p2sh-segwit", "p2sh_p2wpkh"],
+        ["2FFFB500", "BC16", "private", true,  "p2sh-segwit", "p2sh_p2wsh"],
+        ["2FFFB666", "BC17", "public",  false, "segwit",      "p2wpkh"],
+        ["2FFFB800", "BC18", "public",  true,  "segwit",      "p2wsh"],
+        ["2FFFB900", "BC19", "private", false, "segwit",      "p2wpkh"],
+        ["2FFFBA00", "BC1A", "private", true,  "segwit",      "p2wsh"]
+      ],
+      "bip44_cointype": 9999999,
+      "denominator": 0.00000001,
+      "dust_amount": 1000,
+      "fee_default": 10000,
+      "fee_min": 1000,
+      "fee_max": 1000000,
+      "priority": 2
+    },
+    "main": {
+      "description": "Dogecoin",
+      "currency_name": "dogecoin",
+      "currency_name_plural": "dogecoins",
+      "currency_symbol": "Ð",
+      "currency_code": "DOGE",
+      "prefix_address": "1E",
+      "prefix_address_p2sh": "16",
+      "prefix_bech32": "doge",
+      "prefix_wif": "9E",
+      "prefixes_wif": [
+        ["0488B21E", "xpub", "public",  false, "legacy",      "p2pkh"],
+        ["0488B21E", "xpub", "public",  true,  "legacy",      "p2sh"],
+        ["0488ADE4", "xprv", "private", false, "legacy",      "p2pkh"],
+        ["0488ADE4", "xprv", "private", true,  "legacy",      "p2sh"]
+      ],
+      "bip44_cointype": 3,
+      "denominator": 0.00000001,
+      "dust_amount": 1000,
+      "fee_default": 1000000,
+      "fee_min":     1000,
+      "fee_max":   100000000,
+      "priority": 10
+    },
+    "testnet": {
+      "description": "Dogecoin Testnet Network",
+      "currency_name": "test-dogecoin",
+      "currency_name_plural": "test-dogecoins",
+      "currency_symbol": "TDOGE",
+      "currency_code": "tDOGE",
+      "prefix_address": "71",
+      "prefix_address_p2sh": "C4",
+      "prefix_bech32": "tdoge",
+      "prefix_wif": "F1",
+      "prefixes_wif": [
+        ["043587CF", "tpub", "public",  false, "legacy",      "p2pkh"],
+        ["043587CF", "tpub", "public",  true,  "legacy",      "p2sh"],
+        ["04358394", "tprv", "private", false, "legacy",      "p2pkh"],
+        ["04358394", "tprv", "private", true,  "legacy",      "p2sh"]
+      ],
+      "bip44_cointype": 1,
+      "denominator": 0.00000001,
+      "dust_amount": 1000,
+      "fee_default": 1000000,
+      "fee_min": 1000,
+      "fee_max": 100000000,
+      "priority": 6
+    }
   }
 }
