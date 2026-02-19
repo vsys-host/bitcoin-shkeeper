@@ -1214,19 +1214,28 @@ class Wallet(object):
             key = self.key(key)
         txs_found = False
         should_be_finished_count = 0
+        seen_txids = set()
+
         while True:
             with log_time("transactions_update"):
                 n_new = self.transactions_update(key_id=key.id, txs_list=txs_list)
-            # _logger.warning(f"Found new transactions {n_new}")
-            if n_new and n_new < MAX_TRANSACTIONS:
-                if should_be_finished_count:
-                    _logger.info("Possible recursive loop detected in scan_key(%d): retry %d/5" %
-                                 (key.id, should_be_finished_count))
+            current_txids = {t.txid for t in txs_list if hasattr(t, "txid") and t.txid not in seen_txids}
+
+            if current_txids:
+                txs_found = True
+                seen_txids.update(current_txids)
+                should_be_finished_count = 0
+            else:
                 should_be_finished_count += 1
-            _logger.info("Scanned key %d, %s Found %d new transactions" % (key.id, key.address, n_new))
-            if not n_new or should_be_finished_count > 5:
+
+            _logger.info(
+                "Scanned key %d, %s Found %d new transactions, retries %d" %
+                (key.id, key.address, len(current_txids), should_be_finished_count)
+            )
+
+            if not current_txids or should_be_finished_count > 5:
                 break
-            txs_found = True
+
         return txs_found
 
     def scan(self, scan_gap_limit=1, account_id=None, change=None, rescan_used=False, network=None, keys_ignore=None, block=''):
@@ -1935,7 +1944,7 @@ class Wallet(object):
             after_txid = latest_txids.get(address, '')
             new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
             txs += new_txs
-            if new_txs and new_txs[-1].confirmations:
+            if new_txs:
                 txs_by_address[address] = new_txs[-1].txid
             if not srv.complete:
                 if txs and txs[-1].date and txs[-1].date < last_updated:
