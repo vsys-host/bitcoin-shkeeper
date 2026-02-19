@@ -5,7 +5,7 @@ from app.config import config
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.dialects.mysql import VARBINARY
 from sqlalchemy.orm import sessionmaker, relationship, session
-from sqlalchemy import BLOB, TypeDecorator, String
+from sqlalchemy import BLOB, TypeDecorator, String, func
 from hashlib import sha256
 from app.lib.encoding import aes_decrypt, aes_encrypt, double_sha256
 from app.unlock_acc import get_account_password
@@ -133,6 +133,10 @@ class DbTransaction(db.Model):
     size = db.Column(db.Integer)
     fee = db.Column(db.BigInteger)
     status = db.Column(db.String(20), default='new', index=True)
+    tx_type = db.Column(db.String(255), nullable=True, index=True)
+    uid = db.Column(db.String(255), nullable=True, index=True)
+    score = db.Column(db.Numeric(7, 5), default=-1)
+    aml_status = db.Column(db.String(255), nullable=True, index=True)
     is_complete = db.Column(db.Boolean, default=True)
     input_total = db.Column(db.BigInteger, default=0)
     output_total = db.Column(db.BigInteger, default=0)
@@ -195,6 +199,21 @@ class DbTransactionOutput(db.Model):
         db.UniqueConstraint('transaction_id', 'output_n', name='constraint_transaction_output_unique'),
         db.Index('idx_output_key_spent', 'key_id', 'spent'),
     )
+
+class DbAmlPayout(db.Model):
+    __tablename__ = 'aml_payouts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tx_id = db.Column(db.VARBINARY(33), index=True)
+    external_tx_id = db.Column(db.VARBINARY(33), index=True)
+    status = db.Column(db.String(20), index=True)
+    dtype = db.Column(db.String(20), index=True, nullable=True)
+    crypto = db.Column(db.String(10))
+    amount_calc = db.Column(db.Numeric(52, 18), default=0)
+    amount_send = db.Column(db.Numeric(52, 18), default=0)
+    address = db.Column(db.String(255), index=True)
+    created_at = db.Column(db.DateTime, default=func.now())
+    updated_at = db.Column(db.DateTime, default=func.now(), onupdate=func.now())
 
 class WitnessTypeTransactions(enum.Enum):
     legacy = "legacy"
