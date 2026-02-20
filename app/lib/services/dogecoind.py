@@ -221,7 +221,7 @@ class DogecoindClient(BaseClient):
             matched = False
 
             for vout in tx.get('vout', []):
-                addrs = vout.get('scriptPubKey', {}).get('addresses', [])
+                addrs = vout.get('scriptPubKey', {}).get('addresses') or []
                 if address in addrs:
                     matched = True
                     break

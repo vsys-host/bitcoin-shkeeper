@@ -56,7 +56,7 @@ def log_loop():
                 logger.info(f"Processed bloc latest_height {latest_height}")
                 logger.info(f"block_hash atr height {height}")
                 logger.info(f"Processed block_hash {block_hash}")
-                wallet.scan(block=block_hash)
+                wallet.scan(block=block_hash, current_block_height=height)
 
                 wallet.session.query(DbCacheVars).filter_by(
                     varname='last_scanned_block',

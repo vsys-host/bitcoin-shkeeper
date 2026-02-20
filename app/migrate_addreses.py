@@ -226,6 +226,13 @@ def mark_wallet_migrated(session, coin_wallet, height):
         record.value = value
     else:
         session.add(DbCacheVars(varname="last_scanned_block", network_name=network, value=value, type="int", expires=None))
+    if COIN == 'DOGE':
+        migration_block_started = session.query(DbCacheVars).filter_by(varname="migration_from_block_started", network_name=network).first()
+        last_block = CoinWallet().get_last_block_number()
+        if migration_block_started:
+            migration_block_started.value = last_block
+        else:
+            session.add(DbCacheVars(varname="migration_from_block_started", network_name=network, value=last_block, type="int", expires=None))    
     db_wallet = session.query(DbWallet).first()
     if db_wallet:
         db_wallet.migrated = True
@@ -530,7 +537,7 @@ def _migrate_doge():
     from app.lib.wallets import WalletKey
     SRC = config['WALLET_DAT_PATH']
     os.makedirs(TMP_DATADIR, exist_ok=True)
-    WALLET = "shkeeper"
+    WALLET = "wallet.dat"
     DST = os.path.join(TMP_DATADIR, WALLET)
     try:
         shutil.copy(SRC, DST)
@@ -633,6 +640,7 @@ def _migrate_doge():
     )
     # 45810 5996300
     mark_wallet_migrated(session, doge_wallet, closest["height"])
+    # mark_wallet_migrated(session, doge_wallet, 5996300)
     if dogecoind_proc:
         dogecoind_proc.terminate()
         dogecoind_proc.wait()
