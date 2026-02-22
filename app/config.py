@@ -24,7 +24,7 @@ FULLNODE_URL =  {
 BASE_WALLET_PATHS = {
     "BTC": "/root/.bitcoin/shkeeper/wallet.dat",
     "LTC": "/root/.litecoin/shkeeper/wallet.dat",
-    "DOGE": "wallet.dat",
+    "DOGE": "/root/.dogecoin/shkeeper",
 }
 config = {
     'FULLNODE_URL': os.environ.get('FULLNODE_URL', FULLNODE_URL[COIN]),

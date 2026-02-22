@@ -287,7 +287,7 @@ class DogecoindClient(BaseClient):
         res = self.proxy.getrawtransaction(txid)
         return res
     
-    def getdirtytransaction(self, txid):
+    def getverbosetransaction(self, txid):
         res = self.proxy.getrawtransaction(txid, 1)
         return res
     

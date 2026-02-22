@@ -328,8 +328,8 @@ class Service(object):
             self.cache.commit()
         return all_txs
     
-    def getdirtytransaction(self, txid):
-        return self._provider_execute('getdirtytransaction', txid)
+    def getverbosetransaction(self, txid):
+        return self._provider_execute('getverbosetransaction', txid)
 
     def getrawtransaction(self, txid):
         self.results_cache_n = 0
