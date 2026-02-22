@@ -3,7 +3,7 @@ from app.lib.main import *
 from app.lib.services.authproxy import AuthServiceProxy
 from app.lib.services.baseclient import BaseClient, ClientError
 from app.lib.transactions import Transaction
-# from app.models import db, DbDogeMigrationWallet
+# from app.models import db, DbTemporaryMigrationWallet
 from app.lib.networks import Network
 from app.config import config
 from app.models import db, DbCacheVars
@@ -233,14 +233,15 @@ class DogecoindClient(BaseClient):
                         if prev_txid is None or prev_vout_index is None:
                             continue
 
-                        try:
-                            prev_tx = self.proxy.getrawtransaction(prev_txid, 1)
-                            prev_vout = prev_tx['vout'][prev_vout_index]
-                            addrs = prev_vout.get('scriptPubKey', {}).get('addresses', [])
-                        except Exception:
-                            continue
+                        prev_tx = self.proxy.getrawtransaction(prev_txid, 1)
+                        prev_vout = prev_tx['vout'][prev_vout_index]
+                        addrs = prev_vout.get('scriptPubKey', {}).get('addresses', [])
+                        _logger.warning(f"Connect to {addrs} prev_addrs")
+                        # except Exception:
+                        #     continue
 
                         if address in addrs:
+                            _logger.warning(f"Connect to {address} matched")
                             matched = True
                             break
 
@@ -285,7 +286,11 @@ class DogecoindClient(BaseClient):
     def getrawtransaction(self, txid):
         res = self.proxy.getrawtransaction(txid)
         return res
-
+    
+    def getdirtytransaction(self, txid):
+        res = self.proxy.getrawtransaction(txid, 1)
+        return res
+    
     def sendrawtransaction(self, rawtx):
         res = self.proxy.sendrawtransaction(rawtx)
         return {

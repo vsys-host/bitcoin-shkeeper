@@ -1251,7 +1251,7 @@ class Wallet(object):
             _logger.warning(f"migration_block_started {migration_block_started} transactions from current_block_height {current_block_height}")
             if migration_block_started and current_block_height < int(migration_block_started.value):
                _logger.warning(f"migration_block_started transactions < migration_block_started")
-               fixed_addresses = [addr[0] for addr in self.session.query(DbDogeMigrationWallet.address).all()]
+               fixed_addresses = [addr[0] for addr in self.session.query(DbTemporaryMigrationWallet.address).all()]
 
         total_txs = len(txs)
         _logger.warning(f"Fetched {total_txs} transactions from block {block}")
@@ -1263,8 +1263,6 @@ class Wallet(object):
             DbKey.network_name == network
         ).all()
         wallet_addresses_set = {k.address for k in all_keys}
-        # if COIN == 'DOGE' and fixed_addresses:
-        #     wallet_addresses_set |= set(fixed_addresses)
 
         addresses_in_txs = set()
         related_tx_map = {}  # {txid: set(addresses)} - collect statistics during iteration
@@ -1290,13 +1288,14 @@ class Wallet(object):
                         _logger.debug(f"[VOUT] TXID: {txid} → {addr}")
 
             # --- VIN ---
+            # if COIN == 'DOGE' and fixed_addresses:
             for vout in tx.get('vout', []):
                 addrs = vout.get('scriptPubKey', {}).get('addresses') or []
-                if addrs is None:  # защита на всякий случай
+                if addrs is None:
                     addrs = []
 
                 if not set(addrs).intersection(fixed_addresses):
-                    _logger.warning(f"Scanning prev_addrs intersection continue for TX {txid}")
+                    # _logger.warning(f"Scanning prev_addrs intersection continue for TX {txid}")
                     continue
                 _logger.warning(f"Scanning prev_addrs intersection found for TX {txid}")
 
@@ -1307,19 +1306,19 @@ class Wallet(object):
                     prev_addrs = []
 
                     if prev_txid is not None and prev_vout_index is not None:
-                        try:
-                            srv = self._build_service()
-                            prev_tx = srv.getrawtransaction(prev_txid, 1)
-                            prev_vout = prev_tx['vout'][prev_vout_index]
+                        # try:
+                        srv = self._build_service()
+                        prev_tx = srv.getdirtytransaction(prev_txid)
+                        prev_vout = prev_tx['vout'][prev_vout_index]
 
-                            prev_addrs = prev_vout.get('scriptPubKey', {}).get('addresses') or []
-                            if not prev_addrs and prev_vout.get('scriptPubKey', {}).get('address'):
-                                prev_addrs = [prev_vout['scriptPubKey']['address']]
-                        except Exception as e:
-                            _logger.warning(f"Scanning prev_addrs Exception for TX {txid}: {e}")
-                            continue
+                        prev_addrs = prev_vout.get('scriptPubKey', {}).get('addresses') or []
+                        if not prev_addrs and prev_vout.get('scriptPubKey', {}).get('address'):
+                            prev_addrs = [prev_vout['scriptPubKey']['address']]
+                        # except Exception as e:
+                        #     _logger.warning(f"Scanning prev_addrs Exception for TX {txid}: {e}")
+                        #     continue
 
-                    if prev_addrs is None:  # дополнительная защита
+                    if prev_addrs is None:
                         prev_addrs = []
 
                     for addr in prev_addrs:
@@ -1329,21 +1328,19 @@ class Wallet(object):
                             related_utxo_count += 1
                             _logger.debug(f"[VIN] TXID: {txid} → {addr}")
 
+                # for vin in tx.get('vin', []):
+                #     prevout = vin.get('prevout', {})
+                #     spk = prevout.get('scriptPubKey', {})
+                #     addrs = spk.get('addresses') or []
+                #     if not addrs and spk.get('address'):
+                #         addrs = [spk.get('address')]
 
-                    
-            # for vin in tx.get('vin', []):
-            #     prevout = vin.get('prevout', {})
-            #     spk = prevout.get('scriptPubKey', {})
-            #     addrs = spk.get('addresses') or []
-            #     if not addrs and spk.get('address'):
-            #         addrs = [spk.get('address')]
-
-            #     for addr in addrs:
-            #         addresses_in_txs.add(addr)
-            #         if addr in wallet_addresses_set:
-            #             tx_related_addresses.add(addr)
-            #             related_utxo_count += 1
-            #             _logger.debug(f"[VIN]  TXID: {txid} → {addr}")
+                #     for addr in addrs:
+                #         addresses_in_txs.add(addr)
+                #         if addr in wallet_addresses_set:
+                #             tx_related_addresses.add(addr)
+                #             related_utxo_count += 1
+                #             _logger.debug(f"[VIN]  TXID: {txid} → {addr}")
 
             if tx_related_addresses:
                 related_tx_map[txid] = tx_related_addresses
@@ -1381,41 +1378,41 @@ class Wallet(object):
                 )
                 if migration_block_started and current_block_height < int(migration_block_started.value):
                     _logger.warning("migration_block_started transactions < migration_block_started")
-                    fixed_addresses = [addr[0] for addr in self.session.query(DbDogeMigrationWallet.address).all()]
+                    fixed_addresses = [addr[0] for addr in self.session.query(DbTemporaryMigrationWallet.address).all()]
 
                     keys_ids_2 = []
                     for tx in txs_list.get('tx', []):
                         for vout in tx.get('vout', []):
                             addrs = vout.get('scriptPubKey', {}).get('addresses') or []
                             if not set(addrs).intersection(fixed_addresses):
-                                _logger.warning(f"Scanning prev_addrs intersection continue")  
+                                # _logger.warning(f"Scanning prev_addrs intersection continue")  
                                 continue
                             _logger.warning(f"Scanning prev_addrs intersection not_continue")  
                             for vin in tx.get('vin', []):
                                 prev_txid = vin.get('txid')
                                 prev_vout_index = vin.get('vout')
 
-                                # if prev_txid is None or prev_vout_index is None:
-                                #     continue
-
-                                try:
-                                    srv = self._build_service()
-                                    _logger.warning(f"Scanning prev_addrs _build_service {prev_txid} prev_txid")                 
-                                    prev_tx = srv.getrawtransaction(prev_txid, 1)
-                                    _logger.warning(f"Scanning prev_addrs {prev_tx} ")
-                                    prev_vout = prev_tx['vout'][prev_vout_index]
-                                    prev_addrs = prev_vout.get('scriptPubKey', {}).get('addresses', [])
-                                except Exception:
-                                    _logger.warning(f"Scanning prev_addrs Exception")  
+                                if prev_txid is None or prev_vout_index is None:
                                     continue
 
-                                _logger.warning(f"Scanning prev_addrs {prev_addrs} prev_addrs")  
+                                # try:
+                                srv = self._build_service()
+                                _logger.warning(f"Scanning prev_addrs _build_service {prev_txid} prev_txid")                 
+                                prev_tx = srv.getdirtytransaction(prev_txid)
+                                _logger.warning(f"Scanning prev_addrs {prev_tx} ")
+                                prev_vout = prev_tx['vout'][prev_vout_index]
+                                prev_addrs = prev_vout.get('scriptPubKey', {}).get('addresses', [])
+                                # except Exception:
+                                #     _logger.warning(f"Scanning prev_addrs Exception")  
+                                #     continue
+
+                                _logger.warning(f"FOUND prev_addrs {prev_addrs} prev_addrs")  
 
                                 keys_ids_2.extend(
-                                    get_all_key_ids(s, self.wallet_id, account_id=account_id, network=network, addresses=prev_addrs)
+                                    get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=prev_addrs)
                                 )
                     if keys_ids_2:
-                      _logger.warning(f"Scanning keys_ids_2 {keys_ids_2} keys_ids_2")       
+                      _logger.warning(f"FOUND keys_ids_2 {keys_ids_2} keys_ids_2")       
                     keys_ids = list(set(keys_ids + keys_ids_2))
             s = self.session()
             try:
