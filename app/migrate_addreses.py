@@ -4,7 +4,7 @@ import shutil
 from app.logging import logger
 from app.config import config, COIN
 from app.wallet import CoinWallet
-from app.models import DbWallet, db, DbCacheVars, DbDogeMigrationWallet
+from app.models import DbWallet, db, DbCacheVars, DbTemporaryMigrationWallet
 from app.lib.services.services import Service
 from os import environ
 import shutil
@@ -123,12 +123,12 @@ def list_unique_wallet_addresses(batch_size=1000):
 
 def save_doge_addresses(session, addresses, network):
     for addr in addresses:
-        exists = session.query(DbDogeMigrationWallet.id)\
+        exists = session.query(DbTemporaryMigrationWallet.id)\
             .filter_by(address=addr, network=network)\
             .first()
         if exists:
             continue
-        session.add(DbDogeMigrationWallet(
+        session.add(DbTemporaryMigrationWallet(
             address=addr,
             network=network
         ))
@@ -226,6 +226,13 @@ def mark_wallet_migrated(session, coin_wallet, height):
         record.value = value
     else:
         session.add(DbCacheVars(varname="last_scanned_block", network_name=network, value=value, type="int", expires=None))
+    if COIN == 'DOGE':
+        migration_block_started = session.query(DbCacheVars).filter_by(varname="migration_from_block_started", network_name=network).first()
+        last_block = CoinWallet().get_last_block_number()
+        if migration_block_started:
+            migration_block_started.value = last_block
+        else:
+            session.add(DbCacheVars(varname="migration_from_block_started", network_name=network, value=last_block, type="int", expires=None))    
     db_wallet = session.query(DbWallet).first()
     if db_wallet:
         db_wallet.migrated = True
@@ -610,7 +617,12 @@ def _migrate_doge():
     for address_index, addr_dict in enumerate(legacy_address):
         addr = addr_dict['address']
         privkey_data = get_privkey(addr)
-        print(f"[{address_index}] Address: {addr}")
+
+        # existing_key = db.session.query(WalletKey).filter_by(address=addr).first()
+        # if existing_key:
+        #     print(f"[{address_index}] Address already exists: {addr}")
+        #     continue
+
         if 'privkey' in privkey_data:
             new_key = HDKey(import_key=privkey_data['privkey'], network=config['COIN_NETWORK'], witness_type='legacy')
             WalletKey.from_key(
@@ -631,7 +643,6 @@ def _migrate_doge():
         addresses=addresses,
         network=config['COIN_NETWORK']
     )
-    # 45810 5996300
     mark_wallet_migrated(session, doge_wallet, closest["height"])
     if dogecoind_proc:
         dogecoind_proc.terminate()

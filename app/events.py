@@ -56,7 +56,7 @@ def log_loop():
                 logger.info(f"Processed bloc latest_height {latest_height}")
                 logger.info(f"block_hash atr height {height}")
                 logger.info(f"Processed block_hash {block_hash}")
-                wallet.scan(block=block_hash)
+                wallet.scan(block=block_hash, current_block_height=height)
 
                 wallet.session.query(DbCacheVars).filter_by(
                     varname='last_scanned_block',
@@ -72,10 +72,14 @@ def log_loop():
 
 def events_listener():
     from app import create_app
+    from datetime import datetime, timedelta
+
     app = create_app()
     app.app_context().push()
 
     global _node_synced
+
+    MAX_MIGRATION_AGE = timedelta(hours=10)
 
     while True:
         try:
@@ -88,30 +92,36 @@ def events_listener():
             coin_wallet = CoinWallet()
             wallet = coin_wallet.wallet()
 
-            migration_flag = wallet.session.query(DbCacheVars.value).filter_by(
+            migration_flag = wallet.session.query(DbCacheVars).filter_by(
                 varname="wallet_migration_in_progress",
                 network_name=wallet.network.name
-            ).scalar()
+            ).first()
+
+            if migration_flag:
+                created_at = getattr(migration_flag, "created_at", None)
+                if created_at and datetime.utcnow() - created_at > MAX_MIGRATION_AGE:
+                    logger.warning("Old migration flag found, removing it...")
+                    wallet.session.delete(migration_flag)
+                    wallet.session.commit()
+                    migration_flag = None
 
             if os.path.isfile(config['WALLET_DAT_PATH']) and not wallet.migrated:
-                if not migration_flag or migration_flag != "in_progress":
-                    wallet.session.query(DbCacheVars).filter_by(
-                        varname="wallet_migration_in_progress",
-                        network_name=wallet.network.name
-                    ).delete()
-
-                    wallet.session.add(DbCacheVars(
-                        varname="wallet_migration_in_progress",
-                        network_name=wallet.network.name,
-                        value="in_progress",
-                        type="str",
-                        expires=None
-                    ))
-                    wallet.session.commit()
-
+                if not migration_flag or migration_flag.value != "in_progress":
                     try:
                         logger.info("Wallet migration required, starting migrate_wallet_task...")
                         result = migrate_wallet_task.delay()
+                        wallet.session.query(DbCacheVars).filter_by(
+                          varname="wallet_migration_in_progress",
+                          network_name=wallet.network.name
+                        ).delete()
+                        wallet.session.add(DbCacheVars(
+                            varname="wallet_migration_in_progress",
+                            network_name=wallet.network.name,
+                            value="in_progress",
+                            type="str",
+                            expires=None
+                        ))
+                        wallet.session.commit()
 
                         logger.info("Waiting for migrate_wallet_task to finish (this can take hours)...")
 
@@ -137,6 +147,14 @@ def events_listener():
 
                             logger.info("Migration still in progress... waiting 60s before next check")
                             time.sleep(60)
+                    except Exception as e:
+                        logger.exception(f"Migration task error: {e}")
+                        wallet.session.query(DbCacheVars).filter_by(
+                            varname="wallet_migration_in_progress",
+                            network_name=wallet.network.name
+                        ).delete()
+                        wallet.session.commit()
+                        raise
                     finally:
                         wallet.session.query(DbCacheVars).filter_by(
                             varname="wallet_migration_in_progress",

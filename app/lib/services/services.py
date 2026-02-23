@@ -327,6 +327,9 @@ class Service(object):
                 self.cache.store_transaction(t, commit=False)
             self.cache.commit()
         return all_txs
+    
+    def getverbosetransaction(self, txid):
+        return self._provider_execute('getverbosetransaction', txid)
 
     def getrawtransaction(self, txid):
         self.results_cache_n = 0

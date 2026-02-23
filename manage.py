@@ -6,7 +6,7 @@ from app.config import COIN
 from app.models import (
     DbWallet, DbKey, DbTransaction, DbTransactionInput, DbTransactionOutput,
     DbCacheTransaction, DbCacheTransactionNode, DbCacheAddress,
-    DbCacheBlock, DbCacheVars, DbDogeMigrationWallet
+    DbCacheBlock, DbCacheVars, DbTemporaryMigrationWallet
 )
 
 def wait_for_db(engine, timeout=30):
@@ -37,7 +37,7 @@ def init_db():
         DbCacheBlock.__table__.create(bind=db.engine, checkfirst=True)
         DbCacheVars.__table__.create(bind=db.engine, checkfirst=True)
         if COIN == "DOGE":
-            DbDogeMigrationWallet.__table__.create(
+            DbTemporaryMigrationWallet.__table__.create(
                 bind=db.engine,
                 checkfirst=True
             )

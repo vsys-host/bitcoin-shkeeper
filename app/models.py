@@ -285,8 +285,8 @@ class DbCacheVars(db.Model):
     type = db.Column(db.String(20))
     expires = db.Column(db.DateTime)
 
-class DbDogeMigrationWallet(db.Model):
-    __tablename__ = "doge_migration_wallets"
+class DbTemporaryMigrationWallet(db.Model):
+    __tablename__ = "temporary_migration_wallets"
 
     id = db.Column(db.Integer, primary_key=True)
     address = db.Column(db.String(64), nullable=False, unique=True)
