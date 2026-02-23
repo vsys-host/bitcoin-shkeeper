@@ -1213,20 +1213,23 @@ class Wallet(object):
         if isinstance(key, int):
             key = self.key(key)
         txs_found = False
-        should_be_finished_count = 0
+        iteration_count = 0
+
         while True:
-            with log_time("transactions_update"):
-                n_new = self.transactions_update(key_id=key.id, txs_list=txs_list, fixed_addresses=fixed_addresses)
-            # _logger.warning(f"Found new transactions {n_new}")
-            if n_new and n_new < MAX_TRANSACTIONS:
-                if should_be_finished_count:
-                    _logger.info("Possible recursive loop detected in scan_key(%d): retry %d/5" %
-                                 (key.id, should_be_finished_count))
-                should_be_finished_count += 1
-            _logger.info("Scanned key %d, %s Found %d new transactions" % (key.id, key.address, n_new))
-            if not n_new or should_be_finished_count > 5:
+            iteration_count += 1
+            n_new = self.transactions_update(key_id=key.id, txs_list=txs_list, fixed_addresses=fixed_addresses)
+
+            _logger.info("Scanned key %d, %s Found %d new transactions (iteration %d)" %
+                        (key.id, key.address, n_new, iteration_count))
+
+            if n_new:
+                txs_found = True
+
+            if not n_new or iteration_count >= 10:
+                if iteration_count >= 10:
+                    _logger.warning(f"Maximum 10 iterations reached for scan_key({key.id}), exiting")
                 break
-            txs_found = True
+
         return txs_found
 
     def scan(self, scan_gap_limit=1, account_id=None, change=None, rescan_used=False, network=None, keys_ignore=None, block='', current_block_height=''):
@@ -2013,7 +2016,7 @@ class Wallet(object):
             else:
                 new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
             txs += new_txs
-            if new_txs and new_txs[-1].confirmations:
+            if new_txs:
                 txs_by_address[address] = new_txs[-1].txid
             if not srv.complete:
                 if txs and txs[-1].date and txs[-1].date < last_updated:

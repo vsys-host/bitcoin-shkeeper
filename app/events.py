@@ -73,13 +73,14 @@ def log_loop():
 def events_listener():
     from app import create_app
     from datetime import datetime, timedelta
+    import os, time
 
     app = create_app()
     app.app_context().push()
 
     global _node_synced
-
-    MAX_MIGRATION_AGE = timedelta(hours=10)
+    MAX_MIGRATION_EXPIRES = timedelta(hours=10)
+    SHORT_FLAG_EXPIRES = timedelta(minutes=10)
 
     while True:
         try:
@@ -91,40 +92,46 @@ def events_listener():
 
             coin_wallet = CoinWallet()
             wallet = coin_wallet.wallet()
+            now = datetime.utcnow()
 
             migration_flag = wallet.session.query(DbCacheVars).filter_by(
                 varname="wallet_migration_in_progress",
                 network_name=wallet.network.name
             ).first()
 
-            if migration_flag:
-                created_at = getattr(migration_flag, "created_at", None)
-                if created_at and datetime.utcnow() - created_at > MAX_MIGRATION_AGE:
-                    logger.warning("Old migration flag found, removing it...")
-                    wallet.session.delete(migration_flag)
-                    wallet.session.commit()
-                    migration_flag = None
+            if migration_flag and migration_flag.expires and migration_flag.expires < now:
+                logger.warning("Old migration flag expired, removing...")
+                wallet.session.delete(migration_flag)
+                wallet.session.commit()
+                migration_flag = None
 
             if os.path.isfile(config['WALLET_DAT_PATH']) and not wallet.migrated:
                 if not migration_flag or migration_flag.value != "in_progress":
                     try:
-                        logger.info("Wallet migration required, starting migrate_wallet_task...")
-                        result = migrate_wallet_task.delay()
-                        wallet.session.query(DbCacheVars).filter_by(
-                          varname="wallet_migration_in_progress",
-                          network_name=wallet.network.name
-                        ).delete()
-                        wallet.session.add(DbCacheVars(
+                        temp_flag = DbCacheVars(
                             varname="wallet_migration_in_progress",
                             network_name=wallet.network.name,
-                            value="in_progress",
+                            value="starting",
                             type="str",
-                            expires=None
-                        ))
+                            expires=now + SHORT_FLAG_EXPIRES
+                        )
+                        wallet.session.add(temp_flag)
                         wallet.session.commit()
 
-                        logger.info("Waiting for migrate_wallet_task to finish (this can take hours)...")
+                        logger.info("Wallet migration required, starting migrate_wallet_task...")
+                        result = migrate_wallet_task.delay()
 
+                        if result and hasattr(result, "id") and result.id:
+                            temp_flag.value = "in_progress"
+                            temp_flag.expires = now + MAX_MIGRATION_EXPIRES
+                            wallet.session.commit()
+                        else:
+                            logger.error("Migration task did not start, removing flag")
+                            wallet.session.delete(temp_flag)
+                            wallet.session.commit()
+                            continue
+
+                        logger.info("Waiting for migrate_wallet_task to finish (this can take hours)...")
                         while True:
                             if result.ready():
                                 if result.successful():
@@ -143,6 +150,11 @@ def events_listener():
                                     wallet.session.commit()
                                 else:
                                     logger.error("Migration failed.")
+                                wallet.session.query(DbCacheVars).filter_by(
+                                    varname="wallet_migration_in_progress",
+                                    network_name=wallet.network.name
+                                ).delete()
+                                wallet.session.commit()
                                 break
 
                             logger.info("Migration still in progress... waiting 60s before next check")
@@ -155,14 +167,9 @@ def events_listener():
                         ).delete()
                         wallet.session.commit()
                         raise
-                    finally:
-                        wallet.session.query(DbCacheVars).filter_by(
-                            varname="wallet_migration_in_progress",
-                            network_name=wallet.network.name
-                        ).delete()
-                        wallet.session.commit()
+
                 else:
-                    logger.info("Migration already in progress by another process, waiting...")
+                    logger.info("Migration already in progress by another process, waiting 60s...")
                     time.sleep(60)
                     continue
 
@@ -171,7 +178,6 @@ def events_listener():
                     varname="wallet_migrated",
                     network_name=wallet.network.name
                 ).scalar()
-
                 if not migration_done:
                     logger.warning("Wallet still not marked as migrated, retrying later...")
                     time.sleep(60)
