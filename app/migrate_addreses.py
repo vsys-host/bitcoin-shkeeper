@@ -4,7 +4,7 @@ import shutil
 from app.logging import logger
 from app.config import config, COIN
 from app.wallet import CoinWallet
-from app.models import DbWallet, db, DbCacheVars
+from app.models import DbWallet, db, DbCacheVars, DbTemporaryMigrationWallet
 from app.lib.services.services import Service
 from os import environ
 import shutil
@@ -122,6 +122,18 @@ def get_descriptors():
         get_descriptors = False
     return get_descriptors
 
+def save_migrated_addresses(session, addresses, network):
+    for addr in addresses:
+        exists = session.query(DbTemporaryMigrationWallet.id)\
+            .filter_by(address=addr, network=network)\
+            .first()
+        if exists:
+            continue
+        session.add(DbTemporaryMigrationWallet(
+            address=addr,
+            network=network
+        ))
+
 def get_main_key(descriptors):
     last_desc = descriptors['descriptors'][-1]['desc']
     wif = last_desc.split('(')[1].split(')')[0].replace('/*','')
@@ -177,6 +189,33 @@ def generate_addresses(coin_wallet, current_index_path, quantity_generated_addre
         addr = keys[0].address
         yield path, addr
 
+def list_unique_wallet_addresses(batch_size=1000):
+    addresses = set()
+    offset = 0
+    while True:
+        response = requests.post(
+            "http://" + gethost(),
+            auth=get_rpc_credentials(),
+            json=build_rpc_request(
+                "listtransactions",
+                "*",
+                batch_size,
+                offset
+            ),
+            timeout=30,
+        ).json()
+        batch = response.get("result", [])
+        if not batch:
+            break
+        for tx in batch:
+            addr = tx.get("address")
+            if addr:
+                addresses.add(addr)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
+    return sorted(addresses)
+
 def mark_wallet_migrated(session, coin_wallet, height):
     network = coin_wallet.network.name
     value = str(height - 20)
@@ -185,6 +224,13 @@ def mark_wallet_migrated(session, coin_wallet, height):
         record.value = value
     else:
         session.add(DbCacheVars(varname="last_scanned_block", network_name=network, value=value, type="int", expires=None))
+    if COIN in ("DOGE", "LTC"):
+        migration_block_started = session.query(DbCacheVars).filter_by(varname="migration_from_block_started", network_name=network).first()
+        last_block = CoinWallet().get_last_block_number()
+        if migration_block_started:
+            migration_block_started.value = last_block
+        else:
+            session.add(DbCacheVars(varname="migration_from_block_started", network_name=network, value=last_block, type="int", expires=None))    
     db_wallet = session.query(DbWallet).first()
     if db_wallet:
         db_wallet.migrated = True
@@ -427,8 +473,13 @@ def _migrate_ltc():
         print(f"Path: {path} → Address: {addr}")
     
     session = db.session
+    addresses = list_unique_wallet_addresses()
+    save_migrated_addresses(
+        session=session,
+        addresses=addresses,
+        network=config['COIN_NETWORK']
+    )
     mark_wallet_migrated(session, coin_wallet, closest["height"])
-
     if litecoind_proc:
         litecoind_proc.terminate()
         litecoind_proc.wait()

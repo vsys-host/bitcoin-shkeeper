@@ -263,7 +263,7 @@ class Service(object):
     def getblockcount(self):
        self._provider_execute('getblockcount')
 
-    def gettransactions(self, address, after_txid='', limit=MAX_TRANSACTIONS, txs_list=[]):
+    def gettransactions(self, address, after_txid='', limit=MAX_TRANSACTIONS, txs_list=None, fixed_addresses=None):
         self._reset_results()
         self.results_cache_n = 0
         if not address:
@@ -286,7 +286,7 @@ class Service(object):
         # Get (extra) transactions from service providers
         txs = []
         if not (db_addr and db_addr.last_block and db_addr.last_block >= self.blockcount()):
-            txs = self._provider_execute('gettransactions', address, qry_after_txid.hex(), txs_list)
+            txs = self._provider_execute('gettransactions', address, qry_after_txid.hex(), txs_list, fixed_addresses)
             if txs is False:
                 raise ServiceError("Error when retrieving transactions from service provider")
             for tx in txs:
@@ -327,6 +327,9 @@ class Service(object):
                 self.cache.store_transaction(t, commit=False)
             self.cache.commit()
         return all_txs
+
+    def getverbosetransaction(self, txid):
+        return self._provider_execute('getverbosetransaction', txid)
 
     def getrawtransaction(self, txid):
         self.results_cache_n = 0
