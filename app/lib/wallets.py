@@ -1270,7 +1270,7 @@ class Wallet(object):
         return None
 
     def _get_wallet_addresses(self, network):
-        all_keys = self.session().query(DbKey.address).filter(
+        all_keys = self.session.query(DbKey.address).filter(
             DbKey.wallet_id == self.wallet_id,
             DbKey.network_name == network
         ).all()
@@ -1285,7 +1285,7 @@ class Wallet(object):
             txid = tx.get('txid')
             tx_related_addresses = set()
 
-            self._process_vouts(tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count)
+            related_utxo_count = self._process_vouts(tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count)
             self._process_vins(tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count, fixed_addresses)
 
             if tx_related_addresses:
@@ -1303,6 +1303,7 @@ class Wallet(object):
                     tx_related_addresses.add(addr)
                     related_utxo_count += 1
                     _logger.debug(f"[VOUT] TXID: {tx.get('txid')} → {addr}")
+        return related_utxo_count
 
     def _process_vins(self, tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count, fixed_addresses):
         if COIN == 'DOGE' and fixed_addresses:

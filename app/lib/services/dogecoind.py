@@ -1,9 +1,7 @@
-import configparser
 from app.lib.main import *
 from app.lib.services.authproxy import AuthServiceProxy
 from app.lib.services.baseclient import BaseClient, ClientError
 from app.lib.transactions import Transaction
-# from app.models import db, DbTemporaryMigrationWallet
 from app.lib.networks import Network
 from app.config import config
 from app.models import db, DbCacheVars
@@ -225,7 +223,7 @@ class DogecoindClient(BaseClient):
                 if address in addrs:
                     matched = True
                     break
-                if not matched and addrs in fixed_addresses:
+                if not matched and any(addr in fixed_addresses for addr in addrs):
                     for vin in tx.get('vin', []):
                         prev_txid = vin.get('txid')
                         prev_vout_index = vin.get('vout')
@@ -237,8 +235,6 @@ class DogecoindClient(BaseClient):
                         prev_vout = prev_tx['vout'][prev_vout_index]
                         addrs = prev_vout.get('scriptPubKey', {}).get('addresses', [])
                         _logger.warning(f"Connect to {addrs} prev_addrs")
-                        # except Exception:
-                        #     continue
 
                         if address in addrs:
                             _logger.warning(f"Connect to {address} matched")

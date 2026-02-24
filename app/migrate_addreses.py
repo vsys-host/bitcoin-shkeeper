@@ -7,7 +7,6 @@ from app.wallet import CoinWallet
 from app.models import DbWallet, db, DbCacheVars, DbTemporaryMigrationWallet
 from app.lib.services.services import Service
 from os import environ
-import shutil
 import requests
 from sqlalchemy import exists
 from decimal import Decimal
@@ -566,8 +565,7 @@ def _migrate_doge():
         "-walletbroadcast=0",
         "-daemon=0"
     ]
-    logger.info('migrate_addreses')
-    print("migrate_addreses")
+    logger.info('migrate_addresses')
     time.sleep(20)
     dogecoind_proc = subprocess.Popen(dogecoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -608,7 +606,7 @@ def _migrate_doge():
         encoding="base58"
     )
     legacy_address = list_all_wallet_addresses()
-    print(list_all_wallet_addresses())
+    print(legacy_address)
     legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
     db_wallet = db.session.query(DbWallet).first()
     db_wallet.generated_address_count = legacy_quantity_generated_adresses
@@ -617,11 +615,6 @@ def _migrate_doge():
     for address_index, addr_dict in enumerate(legacy_address):
         addr = addr_dict['address']
         privkey_data = get_privkey(addr)
-
-        # existing_key = db.session.query(WalletKey).filter_by(address=addr).first()
-        # if existing_key:
-        #     print(f"[{address_index}] Address already exists: {addr}")
-        #     continue
 
         if 'privkey' in privkey_data:
             new_key = HDKey(import_key=privkey_data['privkey'], network=config['COIN_NETWORK'], witness_type='legacy')
@@ -632,9 +625,9 @@ def _migrate_doge():
                 key=new_key
             )
             db.session.commit()
-            print(f"  → SUCCESS: {privkey_data.get('privkey')}")
+            logger.info("  → SUCCESS: Imported private key for address %s (index %d)", addr, address_index)
         else:
-            print(f"  → ERROR: {privkey_data.get('error')}")
+            logger.error("  → ERROR: %s", privkey_data.get('error'))
 
     addresses = list_unique_wallet_addresses()
     session = db.session

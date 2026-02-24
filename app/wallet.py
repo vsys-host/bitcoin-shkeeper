@@ -5,7 +5,6 @@ import random
 import uuid
 from app.utils import BTCUtils, LTCUtils, DOGEUtils
 from app.lib.wallets import Wallet, WalletKey
-from app.lib.wallets import Wallet
 from app.lib.services.services import Service
 import requests
 import time
@@ -224,12 +223,11 @@ class CoinWallet():
             new_key = HDKey(network=config['COIN_NETWORK'], witness_type='legacy')
             db_wallet = self.db_wallet()
             wallet_key = WalletKey.from_key(
-                name=f"{db_wallet.name}_{db_wallet.generated_address_count + 1}",
+                name=f"{db_wallet.name}_{db_wallet.generated_address_count}",
                 wallet_id=db_wallet.id,
                 session=db.session,
                 key=new_key
             )
-            db_wallet.generated_address_count += 1
             db.session.commit()
             return wallet_key.address    
         if wallet.purpose == 0:
