@@ -105,7 +105,7 @@ def events_listener():
                 wallet.session.commit()
                 migration_flag = None
 
-            if os.path.isfile(config['WALLET_DAT_PATH']) and not wallet.migrated:
+            if os.path.exists(config['WALLET_DAT_PATH']) and not wallet.migrated:
                 if not migration_flag or migration_flag.value != "in_progress":
                     try:
                         temp_flag = DbCacheVars(
