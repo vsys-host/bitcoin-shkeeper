@@ -2012,10 +2012,7 @@ class Wallet(object):
         txs_by_address = {}  # Track last tx per address for batch update
         for address in addresslist:
             after_txid = latest_txids.get(address, '')
-            if COIN == 'DOGE':
-                new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list, fixed_addresses=fixed_addresses)
-            else:
-                new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
+            new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list, fixed_addresses=fixed_addresses)
             txs += new_txs
             if new_txs:
                 txs_by_address[address] = new_txs[-1].txid
