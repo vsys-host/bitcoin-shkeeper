@@ -23,10 +23,10 @@ PROVIDER_MAP = {
         "key": "litecoind",
         "client_class": "LitecoindClient",
     },
-    # "DOGE": {
-    #     "key": "dogecoind",
-    #     "client_class": "DogecoindClient",
-    # },
+    "DOGE": {
+        "key": "dogecoind",
+        "client_class": "DogecoindClient",
+    },
 }
 
 class ServiceError(Exception):
@@ -327,6 +327,9 @@ class Service(object):
                 self.cache.store_transaction(t, commit=False)
             self.cache.commit()
         return all_txs
+    
+    def getverbosetransaction(self, txid):
+        return self._provider_execute('getverbosetransaction', txid)
 
     def getverbosetransaction(self, txid):
         return self._provider_execute('getverbosetransaction', txid)

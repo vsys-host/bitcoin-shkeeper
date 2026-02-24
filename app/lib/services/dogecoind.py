@@ -1,4 +1,3 @@
-import configparser
 from app.lib.main import *
 from app.lib.services.authproxy import AuthServiceProxy
 from app.lib.services.baseclient import BaseClient, ClientError
@@ -7,20 +6,20 @@ from app.lib.networks import Network
 from app.config import config
 from app.models import db, DbCacheVars
 
-PROVIDERNAME = 'bitcoind'
+PROVIDERNAME = 'dogecoind'
 
 _logger = logging.getLogger(__name__)
 
-class BitcoindClient(BaseClient):
+class DogecoindClient(BaseClient):
     def __init__(self, network=config['COIN_NETWORK'], base_url='', denominator=100000000, *args):
         if isinstance(network, Network):
             network = network.name
         if not base_url:
-            raise ValueError("Please provide rpc connection url to bitcoind node")
+            raise ValueError("Please provide rpc connection url to dogecoind node")
         wallet_name = '' if not len(args) > 6 else args[6]
         if wallet_name:
             base_url = base_url.replace("{wallet_name}", wallet_name)
-        _logger.info("Connect to bitcoind")
+        _logger.info("Connect to dogecoind")
         self.proxy = AuthServiceProxy(base_url)
         super(self.__class__, self).__init__(network, PROVIDERNAME, base_url, denominator, *args)
 
@@ -30,7 +29,7 @@ class BitcoindClient(BaseClient):
             res = self.proxy.getaddressinfo(address)
             if not (res['ismine'] or res['iswatchonly']):
                 raise ClientError(
-                    "Address %s not found in bitcoind wallet, use 'importpubkey' or 'importaddress' to add "
+                    "Address %s not found in dogecoind wallet, use 'importpubkey' or 'importaddress' to add "
                     "address to wallet." % address)
             txs_list = self.proxy.listunspent(0, 99999999, [address])
             for tx in txs_list:
@@ -45,7 +44,7 @@ class BitcoindClient(BaseClient):
         utxos = []
         res = self.proxy.getaddressinfo(address)
         if not (res['ismine'] or res['iswatchonly']):
-            raise ClientError("Address %s not found in bitcoind wallet, use 'importpubkey' or 'importaddress' to add "
+            raise ClientError("Address %s not found in dogecoind wallet, use 'importpubkey' or 'importaddress' to add "
                               "address to wallet." % address)
 
         txs_list = self.proxy.listunspent(0, 9999999, [address])
@@ -101,17 +100,24 @@ class BitcoindClient(BaseClient):
         return t
 
     def _parse_transaction_new(self, tx, block_height=None, block_hash=None, block_time=None, confirmations=None, get_input_values=True):
-        t = Transaction.parse_hex(tx['hex'], strict=self.strict, network=self.network, default_txid=tx['txid'])
+        tr = self.proxy.getrawtransaction(tx['txid'], 1)
+        t = Transaction.parse_hex(
+            tr['hex'],
+            strict=self.strict,
+            network=self.network,
+            default_txid=tx['txid']
+        )
+
         t.block_height = block_height
         t.block_hash = block_hash
         t.confirmations = confirmations
         t.date = datetime.fromtimestamp(block_time, timezone.utc) if block_time else None
-
         t.status = 'unconfirmed'
 
         total_input_value = 0
         total_output_value = 0
 
+        # ---------- INPUTS ----------
         for i, vin in enumerate(tx.get('vin', [])):
             if i >= len(t.inputs):
                 break
@@ -122,13 +128,27 @@ class BitcoindClient(BaseClient):
                 input_obj.script_type = 'coinbase'
                 continue
 
-            if get_input_values and 'prevout' in vin and vin['prevout']:
-                value = vin['prevout'].get('value')
-                if value is not None:
-                    sat_value = int(round(float(value) / float(self.network.denominator)))
-                    input_obj.value = sat_value
-                    total_input_value += sat_value
+            prev_txid = vin.get('txid')
+            prev_vout_index = vin.get('vout')
 
+            if prev_txid is None or prev_vout_index is None:
+                continue
+
+            try:
+                prev_tx = self.proxy.getrawtransaction(prev_txid, 1)
+                prev_vout = prev_tx['vout'][prev_vout_index]
+                value = prev_vout.get('value')
+            except Exception:
+                continue
+
+            if value is None:
+                continue
+
+            sat_value = int(round(float(value) / float(self.network.denominator)))
+            input_obj.value = sat_value
+            total_input_value += sat_value
+
+        # ---------- OUTPUTS ----------
         for i, vout in enumerate(tx.get('vout', [])):
             if i >= len(t.outputs):
                 break
@@ -137,23 +157,24 @@ class BitcoindClient(BaseClient):
             output_obj.spent = None
 
             value = vout.get('value')
-            if value is not None:
-                sat_value = int(round(float(value) / float(self.network.denominator)))
-                output_obj.value = sat_value
-                total_output_value += sat_value
+            if value is None:
+                continue
 
+            sat_value = int(round(float(value) / float(self.network.denominator)))
+            output_obj.value = sat_value
+            total_output_value += sat_value
+
+        # ---------- BLOCK / CONFIRMATIONS ----------
         if not block_height and t.block_hash:
             block = self.proxy.getblock(t.block_hash, 1)
-            block_height = block['height']
+            t.block_height = block['height']
 
-        t.block_height = block_height
-
-        if not t.confirmations and block_height is not None:
+        if not t.confirmations and t.block_height is not None:
             if not self.latest_block:
                 self.latest_block = self.blockcount()
-            t.confirmations = (self.latest_block - block_height) + 1
+            t.confirmations = (self.latest_block - t.block_height) + 1
 
-        if t.confirmations or block_height:
+        if t.confirmations or t.block_height:
             t.status = 'confirmed'
             t.verified = True
 
@@ -163,7 +184,11 @@ class BitcoindClient(BaseClient):
 
         t.total_input = total_input_value
         t.total_output = total_output_value
-        t.fee = total_input_value - total_output_value if total_input_value > 0 else None
+        t.fee = (
+            total_input_value - total_output_value
+            if total_input_value > 0
+            else None
+        )
 
         return t
 
@@ -171,50 +196,64 @@ class BitcoindClient(BaseClient):
         tx_raw = self.proxy.getrawtransaction(txid, 1)
         return self._parse_transaction(tx_raw)
 
-    def gettransactions(self, address, after_txid='', txs_list=None):
+    def getblockchaininfo(self):
+        blockchain_info = self.proxy.getblockchaininfo()
+        return blockchain_info
+
+    def gettransactions(self, address, after_txid='', txs_list=None, fixed_addresses=None):
         if txs_list is None:
             txs_list = []
+        if fixed_addresses is None:
+            fixed_addresses = []
         txs = []
-        # Use dict to avoid duplicates when address appears in both inputs and outputs
-        txids = {}
+        if not txs_list:
+            return txs
 
         block_hash = txs_list.get('hash')
         block_height = txs_list.get('height')
         block_time = txs_list.get('time')
         confirmations = txs_list.get('confirmations')
 
-        for tx in txs_list['tx']:
+        for tx in txs_list.get('tx', []):
             tx_id = tx.get('txid')
             matched = False
 
             for vout in tx.get('vout', []):
-                addr = vout.get('scriptPubKey', {}).get('address')
-                if addr == address:
+                addrs = vout.get('scriptPubKey', {}).get('addresses') or []
+                if address in addrs:
                     matched = True
                     break
+                if not matched and any(addr in fixed_addresses for addr in addrs):
+                    for vin in tx.get('vin', []):
+                        prev_txid = vin.get('txid')
+                        prev_vout_index = vin.get('vout')
+
+                        if prev_txid is None or prev_vout_index is None:
+                            continue
+
+                        prev_tx = self.proxy.getrawtransaction(prev_txid, 1)
+                        prev_vout = prev_tx['vout'][prev_vout_index]
+                        addrs = prev_vout.get('scriptPubKey', {}).get('addresses', [])
+                        _logger.warning(f"Connect to {addrs} prev_addrs")
+
+                        if address in addrs:
+                            _logger.warning(f"Connect to {address} matched")
+                            matched = True
+                            break
 
             if not matched:
-                for vin in tx.get('vin', []):
-                    prevout = vin.get('prevout', {})
-                    addr = prevout.get('scriptPubKey', {}).get('address')
-                    if addr == address:
-                        matched = True
-                        break
+                continue
 
-            if matched:
-                txids[tx_id] = (tx, block_height, block_hash, block_time, confirmations)
-
-        for tx_id, (tx, block_height, block_hash, block_time, confirmations) in txids.items():
             try:
                 t = self._parse_transaction_new(tx, block_height, block_hash, block_time, confirmations)
                 txs.append(t)
+
                 if tx_id == after_txid:
                     txs = []
             except Exception as e:
-                _logger.error(f"Failed to parse tx {tx}: {e}")
+                _logger.error(f"Failed to parse tx {tx_id}: {e}")
 
         return txs
-
 
     def getblocktransactions(self, block_hash):
         _logger.warning("REQUEST getblocktransactions")
@@ -243,31 +282,30 @@ class BitcoindClient(BaseClient):
     def getrawtransaction(self, txid):
         res = self.proxy.getrawtransaction(txid)
         return res
-
+    
+    def getverbosetransaction(self, txid):
+        res = self.proxy.getrawtransaction(txid, 1)
+        return res
+    
     def sendrawtransaction(self, rawtx):
         res = self.proxy.sendrawtransaction(rawtx)
         return {
             'txid': res,
             'response_dict': res
         }
-
     def estimatefee(self, blocks):
         pres = ''
         try:
             pres = self.proxy.estimatesmartfee(blocks)
             res = pres['feerate']
         except KeyError as e:
-            _logger.info("bitcoind error: %s, %s" % (e, pres))
+            _logger.info("dogecoind error: %s, %s" % (e, pres))
             res = self.proxy.estimatefee(blocks)
         return int(res * self.units)
 
     def blockcount(self):
         bcinfo = self.proxy.getblockchaininfo()
         return bcinfo['blocks']
-
-    def getblockchaininfo(self):
-        blockchain_info = self.proxy.getblockchaininfo()
-        return blockchain_info
 
     def synced_status(self):
         bcinfo = self.proxy.getblockchaininfo()
@@ -314,7 +352,6 @@ class BitcoindClient(BaseClient):
         else:
             bd = self.proxy.getblock(blockid, 1)
             txs = bd['tx']
-
         block = {
             'bits': int(bd['bits'], 16),
             'depth': bd['confirmations'],
@@ -324,7 +361,7 @@ class BitcoindClient(BaseClient):
             'nonce': bd['nonce'],
             'prev_block': None if 'previousblockhash' not in bd else bd['previousblockhash'],
             'time': bd['time'],
-            'tx_count': bd['nTx'],
+            'tx_count': len(bd["tx"]),
             'txs': txs,
             'version': bd['version'],
             'page': page,

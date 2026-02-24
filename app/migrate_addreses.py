@@ -7,7 +7,6 @@ from app.wallet import CoinWallet
 from app.models import DbWallet, db, DbCacheVars, DbTemporaryMigrationWallet
 from app.lib.services.services import Service
 from os import environ
-import shutil
 import requests
 from sqlalchemy import exists
 from decimal import Decimal
@@ -28,6 +27,8 @@ if COIN == "BTC":
     RPC_PORT = "18332"
 elif COIN == "LTC":
     RPC_PORT = "9332"
+elif COIN == "DOGE":
+    RPC_PORT = "19332"
 else:
     raise ValueError(f"Unsupported coin: {COIN}")
 DUMP_FILE = "keys.txt"
@@ -91,6 +92,33 @@ def list_legacy_address():
     except requests.exceptions.RequestException:
         addresses = False
     return addresses
+
+def list_unique_wallet_addresses(batch_size=1000):
+    addresses = set()
+    offset = 0
+    while True:
+        response = requests.post(
+            "http://" + gethost(),
+            auth=get_rpc_credentials(),
+            json=build_rpc_request(
+                "listtransactions",
+                "*",
+                batch_size,
+                offset
+            ),
+            timeout=30,
+        ).json()
+        batch = response.get("result", [])
+        if not batch:
+            break
+        for tx in batch:
+            addr = tx.get("address")
+            if addr:
+                addresses.add(addr)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
+    return sorted(addresses)
 
 def time_wallet_created():
     configured_time = config.get("TIME_WALLET_CREATED")
@@ -234,15 +262,63 @@ def mark_wallet_migrated(session, coin_wallet, height):
     db_wallet = session.query(DbWallet).first()
     if db_wallet:
         db_wallet.migrated = True
-        print("Migrated flag updated")
+        print(f"migrated updated")
         session.add(db_wallet)
     session.commit()
+
+def list_all_wallet_addresses():
+    addresses = set()
+    try:
+        # 1. listreceivedbyaddress
+        resp1 = requests.post(
+            "http://" + gethost(),
+            auth=get_rpc_credentials(),
+            json=build_rpc_request("listreceivedbyaddress", 0, True),
+        ).json()
+        for item in resp1.get("result", []):
+            addresses.add(item["address"])
+        # 2. listaddressgroupings
+        resp2 = requests.post(
+            "http://" + gethost(),
+            auth=get_rpc_credentials(),
+            json=build_rpc_request("listaddressgroupings"),
+        ).json()
+        for group in resp2.get("result", []):
+            for addr_info in group:
+                addresses.add(addr_info[0])
+        # 3. getaddressesbylabel
+        resp3 = requests.post(
+            "http://" + gethost(),
+            auth=get_rpc_credentials(),
+            json=build_rpc_request("getaddressesbylabel", ""),
+        ).json()
+        if resp3.get("result"):
+            for addr in resp3["result"].keys():
+                addresses.add(addr)
+    except requests.exceptions.RequestException:
+        pass
+    return list(addresses)
+
+def get_privkey(address):
+    try:
+        response = requests.post(
+            "http://" + gethost(),
+            auth=get_rpc_credentials(),
+            json=build_rpc_request("dumpprivkey", address)
+        ).json()
+        if response.get("error"):
+            return {"error": response["error"]}
+        return {"address": address, "privkey": response["result"]}
+    except Exception as e:
+        return {"error": str(e)}
 
 def migrate_addreses():
     if COIN == 'BTC':
         _migrate_btc()
     elif COIN == 'LTC':
         _migrate_ltc()
+    elif COIN == 'DOGE':
+        _migrate_doge()
     else:
         raise ValueError(f"Unsupported coin {COIN}")
 
@@ -314,8 +390,6 @@ def _migrate_btc():
             print(wallet_name)
             wallet_delete(wallet_name, force=True)
         coin_wallet = Wallet.create('Wallet7', wif, witness_type='segwit', purpose='84')
-        # transactions = list_transactions()
-        # save_sent_addresses(transactions)
         legacy_address = list_legacy_address()
         quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
 
@@ -484,6 +558,120 @@ def _migrate_ltc():
         litecoind_proc.terminate()
         litecoind_proc.wait()
 
+    if os.path.exists(TMP_DATADIR):
+        shutil.rmtree(TMP_DATADIR, ignore_errors=True)
+        print(f"Removed temporary directory {TMP_DATADIR}")
+
+
+def _migrate_doge():
+    from app.lib.keys import  HDKey
+    from app.lib.wallets import WalletKey
+    SRC = config['WALLET_DAT_PATH']
+    os.makedirs(TMP_DATADIR, exist_ok=True)
+    WALLET = "shkeeper"
+    DST = os.path.join(TMP_DATADIR, WALLET)
+    try:
+        shutil.copy(SRC, DST)
+        print(f"Copied {SRC} → {DST}")
+    except FileNotFoundError:
+        print(f"{SRC} not found, skipping copy")
+    except PermissionError:
+        print(f"Permission denied copying {SRC} → {DST}")
+    dogecoind_cmd = [
+        "dogecoind",
+        f"-datadir={TMP_DATADIR}",
+        "-server",
+        # f"-{config['COIN_NETWORK']}",
+        # "-rpcallowip=127.0.0.1",
+        "-rpcallowip=0.0.0.0/0",
+        f"-rpcbind={rpc_bind}",
+        f"-rpcport={RPC_PORT}",
+        f"-rpcuser={RPC_USER}",
+        f"-rpcpassword={RPC_PASSWORD}",
+        f"-walletdir={TMP_DATADIR}",
+        f"-wallet={WALLET}",
+        "-connect=0",
+        "-disablewallet=0",
+        "-deprecatedrpc=addresses",
+        "-printtoconsole",
+        "-walletbroadcast=0",
+        "-daemon=0"
+    ]
+    logger.info('migrate_addresses')
+    time.sleep(20)
+    dogecoind_proc = subprocess.Popen(dogecoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    time.sleep(20)
+    print("dogecoind_proc")
+    from app import create_app
+    app = create_app()
+    app.app_context().push()
+    from app.lib.wallets import Wallet, DbWallet, wallets_list, wallet_delete, db
+    try:
+        target_timestamp = time_wallet_created()
+        if not target_timestamp:
+            raise RuntimeError("Wallet creation date not found. Aborting migration.")
+        closest = find_closest_block_by_timestamp(target_timestamp)
+        print(f"Closest block height: {closest['height']}")
+    except Exception as e:
+        print(f"Migration migrate_addreses failed: {e}")
+        if dogecoind_proc:
+            print("Terminate dogecoind_proc")
+            dogecoind_proc.terminate()
+            dogecoind_proc.wait()
+        if os.path.exists(TMP_DATADIR):
+            shutil.rmtree(TMP_DATADIR, ignore_errors=True)
+            print(f"Removed temporary directory {TMP_DATADIR}")
+        raise RuntimeError(f"Migration failed: {type(e).__name__}: {e}") from e
+
+    print("legacy")
+    for wallet in wallets_list():
+        wallet_name = wallet['name']
+        print(wallet_name)
+        wallet_delete(wallet_name, force=True)
+
+    doge_wallet = Wallet.create(
+        'Wallet7',
+        network=config['COIN_NETWORK'],
+        witness_type='legacy',
+        scheme="single",
+        encoding="base58"
+    )
+    legacy_address = list_all_wallet_addresses()
+    print(legacy_address)
+    legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
+    db_wallet = db.session.query(DbWallet).first()
+    db_wallet.generated_address_count = legacy_quantity_generated_adresses
+    db.session.commit()
+    legacy_address = [{'address': addr} for addr in legacy_address]
+    for address_index, addr_dict in enumerate(legacy_address):
+        addr = addr_dict['address']
+        privkey_data = get_privkey(addr)
+
+        if 'privkey' in privkey_data:
+            new_key = HDKey(import_key=privkey_data['privkey'], network=config['COIN_NETWORK'], witness_type='legacy')
+            WalletKey.from_key(
+                name=f"{db_wallet.name}_{address_index + 1}",
+                wallet_id=db_wallet.id,
+                session=db.session,
+                key=new_key
+            )
+            db.session.commit()
+            logger.info("  → SUCCESS: Imported private key for address %s (index %d)", addr, address_index)
+        else:
+            logger.error("  → ERROR: %s", privkey_data.get('error'))
+
+    addresses = list_unique_wallet_addresses()
+    session = db.session
+    save_migrated_addresses(
+        session=session,
+        addresses=addresses,
+        network=config['COIN_NETWORK']
+    )
+    mark_wallet_migrated(session, doge_wallet, closest["height"])
+    if dogecoind_proc:
+        dogecoind_proc.terminate()
+        dogecoind_proc.wait()
     if os.path.exists(TMP_DATADIR):
         shutil.rmtree(TMP_DATADIR, ignore_errors=True)
         print(f"Removed temporary directory {TMP_DATADIR}")

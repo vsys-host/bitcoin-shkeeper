@@ -837,7 +837,7 @@ class Wallet(object):
 
             w = cls(new_wallet_id, db_cache_uri=db_cache_uri, main_key_object=mk.key())
             w.key_for_path([], account_id=account_id, change=0, address_index=0)
-        else:  # scheme == 'single':
+        else:  # scheme == 'single': # DOGE
             if not key:
                 key = HDKey(network=network, depth=key_depth)
             mk = WalletKey.from_key(key=key, name=name, session=session, wallet_id=new_wallet_id, network=network,
@@ -909,9 +909,9 @@ class Wallet(object):
             network = DEFAULT_NETWORK
         if witness_type is None:
             witness_type = DEFAULT_WITNESS_TYPE
-        if network in ['dogecoin', 'dogecoin_testnet'] and witness_type != 'legacy':
+        if COIN == 'DOGE' and witness_type != 'legacy':    
             raise WalletError("Segwit is not supported for %s wallets" % network.capitalize())
-        elif network in ('dogecoin', 'dogecoin_testnet') and witness_type not in ('legacy', 'p2sh-segwit'):
+        elif COIN == 'DOGE' and witness_type not in ('legacy', 'p2sh-segwit'):
             raise WalletError("Pure segwit addresses are not supported for Dogecoin wallets. "
                               "Please use p2sh-segwit instead")
 
@@ -1270,7 +1270,7 @@ class Wallet(object):
         return None
 
     def _get_wallet_addresses(self, network):
-        all_keys = self.session().query(DbKey.address).filter(
+        all_keys = self.session.query(DbKey.address).filter(
             DbKey.wallet_id == self.wallet_id,
             DbKey.network_name == network
         ).all()
@@ -1285,7 +1285,7 @@ class Wallet(object):
             txid = tx.get('txid')
             tx_related_addresses = set()
 
-            self._process_vouts(tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count)
+            related_utxo_count = self._process_vouts(tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count)
             self._process_vins(tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count, fixed_addresses)
 
             if tx_related_addresses:
@@ -1303,9 +1303,10 @@ class Wallet(object):
                     tx_related_addresses.add(addr)
                     related_utxo_count += 1
                     _logger.debug(f"[VOUT] TXID: {tx.get('txid')} → {addr}")
+        return related_utxo_count
 
     def _process_vins(self, tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count, fixed_addresses):
-        if COIN in ("DOGE", "LTC") and fixed_addresses:
+        if COIN == 'DOGE' and fixed_addresses:
             for vout in tx.get('vout', []):
                 addrs = vout.get('scriptPubKey', {}).get('addresses') or []
                 if not set(addrs).intersection(fixed_addresses):
@@ -1346,7 +1347,7 @@ class Wallet(object):
 
             keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=addresses_in_txs)
 
-            # --- DOGE migration prev_addrs logic ---
+            # --- DOGE LTC migration prev_addrs logic ---
             if COIN in ("DOGE", "LTC") and fixed_addresses:
                 keys_ids = self._add_fixed_addresses_keys(keys_ids, txs_list, fixed_addresses, account_id, network)
 
@@ -2011,7 +2012,10 @@ class Wallet(object):
         txs_by_address = {}  # Track last tx per address for batch update
         for address in addresslist:
             after_txid = latest_txids.get(address, '')
-            new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list, fixed_addresses=fixed_addresses)
+            if COIN in ('DOGE', 'LTC'):
+                new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list, fixed_addresses=fixed_addresses)
+            else:
+                new_txs = srv.gettransactions(address, limit=limit, after_txid=after_txid, txs_list=txs_list)
             txs += new_txs
             if new_txs:
                 txs_by_address[address] = new_txs[-1].txid
