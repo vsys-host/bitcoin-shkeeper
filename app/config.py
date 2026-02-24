@@ -19,12 +19,13 @@ DB_NAME_MAP = {
 }
 FULLNODE_URL =  {
                   "BTC": "http://shkeeper:shkeeper@fullnode.bitcoin.shkeeper.io:8332",
-                  "LTC": "http://shkeeper:shkeeper@fullnode.litecoin.shkeeper.io"
+                  "LTC": "http://shkeeper:shkeeper@fullnode.litecoin.shkeeper.io",
+                  "DOGE": "http://shkeeper:shkeeper@fullnode.dogecoin.shkeeper.io"
                 }
 BASE_WALLET_PATHS = {
     "BTC": "/root/.bitcoin/shkeeper/wallet.dat",
     "LTC": "/root/.litecoin/shkeeper/wallet.dat",
-    "DOGE": "/root/.dogecoin/shkeeper/wallet.dat",
+    "DOGE": "/root/.dogecoin/shkeeper",
 }
 external_raw = os.environ.get("EXTERNAL_DRAIN_CONFIG")
 if external_raw:

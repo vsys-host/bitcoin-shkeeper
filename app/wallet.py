@@ -3,15 +3,15 @@ import json
 import decimal
 import random
 import uuid
-from app.utils import BTCUtils, LTCUtils
-from app.lib.wallets import Wallet
+from app.utils import BTCUtils, LTCUtils, DOGEUtils
+from app.lib.wallets import Wallet, WalletKey
 from app.lib.services.services import Service
 import requests
 import time
 import sqlalchemy
 from flask import current_app as app
 from .config import config, COIN
-from .models import DbWallet, DbTransaction, db
+from .models import DbWallet, DbTransaction, db, DbKey
 from app.lib.values import Value, decimal_value_to_satoshi
 from .logging import logger
 from app.unlock_acc import get_account_password
@@ -96,7 +96,13 @@ class CoinWallet():
         wallet = self.current_wallet()
         if not wallet:
             wallet_name = self.generate_wallet_name()
-            wallet = Wallet.create(wallet_name, network=config['COIN_NETWORK'], witness_type='segwit')
+            wallet = Wallet.create(
+                wallet_name,
+                network=config['COIN_NETWORK'],
+                witness_type=self.witness_type(),
+                scheme="single" if COIN == "DOGE" else "bip32",
+                encoding="base58" if COIN == "DOGE" else "bech32"
+            )
         
         current_index_path = wallet.current_index_path()
         # add code
@@ -196,7 +202,13 @@ class CoinWallet():
     def generate_address(self):
         if db.session.query(DbWallet).count() == 0:
             wallet_name = self.generate_wallet_name()
-            wallet = Wallet.create(wallet_name, network=config['COIN_NETWORK'], witness_type='segwit')
+            wallet = Wallet.create(
+                wallet_name,
+                network=config['COIN_NETWORK'],
+                witness_type=self.witness_type(),
+                scheme="single" if COIN == "DOGE" else "bip32",
+                encoding="base58" if COIN == "DOGE" else "bech32"
+            )
             address_index = 1
             logger.warning("Wallet created")
         else:
@@ -206,23 +218,41 @@ class CoinWallet():
             db_wallet.generated_address_count = address_index
             db.session.commit()
             logger.warning("Updated generated_address_count")
+        if COIN == "DOGE":
+            from app.lib.keys import  HDKey
+            new_key = HDKey(network=config['COIN_NETWORK'], witness_type='legacy')
+            db_wallet = self.db_wallet()
+            wallet_key = WalletKey.from_key(
+                name=f"{db_wallet.name}_{db_wallet.generated_address_count}",
+                wallet_id=db_wallet.id,
+                session=db.session,
+                key=new_key
+            )
+            db.session.commit()
+            return wallet_key.address    
         if wallet.purpose == 0:
            path = f"m/0'/0/{address_index}"
            path_old = f"m/0'/1/{address_index}"
-           keys = wallet.keys_for_path(path=path, witness_type='segwit', account_id=0, network=config['COIN_NETWORK']) 
-           wallet.keys_for_path(path=path_old, witness_type='segwit', account_id=0, network=config['COIN_NETWORK']) 
+           keys = wallet.keys_for_path(path=path, witness_type=self.witness_type(), account_id=0, network=config['COIN_NETWORK'])
+           wallet.keys_for_path(path=path_old, witness_type=self.witness_type(), account_id=0, network=config['COIN_NETWORK'])
         else:
             current_index_path = wallet.current_index_path()
             path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
             change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
-            wallet.keys_for_path(path=change_path, account_id=0, network=config['COIN_NETWORK'], witness_type='segwit')
-            keys = wallet.keys_for_path(path=path, account_id=0, network=config['COIN_NETWORK'], witness_type='segwit')
+            wallet.keys_for_path(path=change_path, account_id=0, network=config['COIN_NETWORK'], witness_type=self.witness_type())
+            keys = wallet.keys_for_path(path=path, account_id=0, network=config['COIN_NETWORK'], witness_type=self.witness_type())
         if not keys:
             logger.warning(f"No keys returned for path {path}")
             return None
 
         address = keys[0].address
         return address
+
+    def witness_type(self):
+        if COIN == "DOGE":
+            return 'legacy'
+        else:
+            return 'segwit'
 
     def make_multipayout(self, payout_list, coin_fee):
         logger.warning(f'make_multipayout wallets {payout_list}')
@@ -285,5 +315,7 @@ class CoinWallet():
             return BTCUtils.is_valid_btc_address(address)
         elif COIN == "LTC":
             return LTCUtils.is_valid_ltc_address(address)
+        elif COIN == "DOGE":
+            return DOGEUtils.is_valid_doge_address(address)
         else:
             raise ValueError(f"Unknown coin type: {COIN}")

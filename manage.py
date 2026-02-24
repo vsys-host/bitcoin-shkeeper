@@ -2,10 +2,11 @@
 # python manage.py init_db
 import sys
 from app import create_app, db
+from app.config import COIN
 from app.models import (
     DbWallet, DbKey, DbTransaction, DbTransactionInput, DbTransactionOutput,
     DbCacheTransaction, DbCacheTransactionNode, DbCacheAddress,
-    DbCacheBlock, DbCacheVars, DbAmlPayout
+    DbCacheBlock, DbCacheVars, DbTemporaryMigrationWallet, DbAmlPayout
 )
 from sqlalchemy import inspect, text
 
@@ -46,6 +47,11 @@ def create_tables_and_columns():
 
         for model in models:
             model.__table__.create(bind=db.engine, checkfirst=True)
+        if COIN == "DOGE":
+            DbTemporaryMigrationWallet.__table__.create(
+                bind=db.engine,
+                checkfirst=True
+            )    
 
         transaction_new_columns = {
             'tx_type': 'VARCHAR(255)',
