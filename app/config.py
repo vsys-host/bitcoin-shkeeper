@@ -1,5 +1,6 @@
 import os
 from decimal import Decimal
+import json
 
 def detect_active_coin():
     coin = os.environ.get("WALLET")
@@ -26,6 +27,15 @@ BASE_WALLET_PATHS = {
     "LTC": "/root/.litecoin/shkeeper/wallet.dat",
     "DOGE": "/root/.dogecoin/shkeeper",
 }
+external_raw = os.environ.get("EXTERNAL_DRAIN_CONFIG")
+if external_raw:
+    try:
+        EXTERNAL_DRAIN_CONFIG = json.loads(external_raw)
+    except Exception:
+        EXTERNAL_DRAIN_CONFIG = None
+else:
+    EXTERNAL_DRAIN_CONFIG = None
+
 config = {
     'FULLNODE_URL': os.environ.get('FULLNODE_URL', FULLNODE_URL[COIN]),
     'FULLNODE_TIMEOUT': os.environ.get('FULLNODE_TIMEOUT', '60'),
@@ -39,6 +49,11 @@ config = {
             "?charset=utf8mb4&binary_prefix=true"
         ),
     ),
+    # ... aml_config
+    'EXTERNAL_DRAIN_CONFIG': EXTERNAL_DRAIN_CONFIG,
+    'AML_RESULT_UPDATE_PERIOD': 120,
+    'AML_WAIT_BEFORE_API_CALL': 320,
+    # ...
     'SQLALCHEMY_POOL_SIZE' : os.environ.get('SQLALCHEMY_POOL_SIZE', 30),
     'API_USERNAME': os.environ.get(f'{COIN}_USERNAME', 'shkeeper'),
     'API_PASSWORD': os.environ.get(f'{COIN}_PASSWORD', 'shkeeper'),
@@ -46,7 +61,7 @@ config = {
     'SHKEEPER_HOST': os.environ.get('SHKEEPER_HOST', 'shkeeper:5000'),
     'REDIS_HOST': os.environ.get('REDIS_HOST', 'localhost'),
     'CELERY_MAX_TASKS_PER_CHILD': os.environ.get('CELERY_MAX_TASKS_PER_CHILD', '10'), 
-    'MIN_TRANSFER_THRESHOLD': Decimal(os.environ.get('MIN_TRANSFER_THRESHOLD', '0.1')),
+    'MIN_TRANSFER_THRESHOLD': Decimal(os.environ.get('MIN_TRANSFER_THRESHOLD', '0.000001')),
     'LAST_BLOCK_LOCKED': os.environ.get('LAST_BLOCK_LOCKED', "False"),
     'NETWORK_FEE': os.environ.get('NETWORK_FEE', "0.00005"),
     'ACCOUNT_RESERVED_AMOUNT': os.environ.get('ACCOUNT_RESERVED_AMOUNT', "0.000001"),
@@ -55,6 +70,7 @@ config = {
     'TIME_WALLET_CREATED': os.environ.get('TIME_WALLET_CREATED'),
     'COIN_NETWORK': os.environ.get(f"{COIN}_NETWORK", "main"),  # main, testnet, regtest
 }
+
 
 def is_test_network():
     if config['COIN_NETWORK'] == 'main':

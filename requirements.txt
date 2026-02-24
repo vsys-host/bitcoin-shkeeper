@@ -63,4 +63,6 @@ xrpl-py==2.4.0
 zipp==3.8.1
 pytest
 psutil
+pydantic==2.10.4
+pydantic-settings==2.7.0
 SQLAlchemy==1.4
