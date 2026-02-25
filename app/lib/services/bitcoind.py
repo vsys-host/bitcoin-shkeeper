@@ -171,7 +171,7 @@ class BitcoindClient(BaseClient):
         tx_raw = self.proxy.getrawtransaction(txid, 1)
         return self._parse_transaction(tx_raw)
 
-    def gettransactions(self, address, after_txid='', txs_list=None):
+    def gettransactions(self, address, after_txid='', txs_list=None, fixed_addresses=None):
         if txs_list is None:
             txs_list = []
         txs = []
