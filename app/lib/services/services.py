@@ -331,9 +331,6 @@ class Service(object):
     def getverbosetransaction(self, txid):
         return self._provider_execute('getverbosetransaction', txid)
 
-    def getverbosetransaction(self, txid):
-        return self._provider_execute('getverbosetransaction', txid)
-
     def getrawtransaction(self, txid):
         self.results_cache_n = 0
         rawtx = self.cache.getrawtransaction(bytes.fromhex(txid))
