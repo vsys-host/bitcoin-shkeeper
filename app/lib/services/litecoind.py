@@ -170,12 +170,14 @@ class LitecoindClient(BaseClient):
         tx_raw = self.proxy.getrawtransaction(txid, 1)
         return self._parse_transaction(tx_raw)
 
-    def gettransactions(self, address, after_txid='', txs_list=None):
+    def gettransactions(self, address, after_txid='', txs_list=None, fixed_addresses=None):
         if txs_list is None:
-           txs_list = []
+            txs_list = []
+        if fixed_addresses is None:
+            fixed_addresses = []
         txs = []
-        # Use dict to avoid duplicates when address appears in both inputs and outputs
-        txids = {}
+        if not txs_list:
+            return txs
 
         block_hash = txs_list.get('hash')
         block_height = txs_list.get('height')
@@ -187,30 +189,41 @@ class LitecoindClient(BaseClient):
             matched = False
 
             for vout in tx.get('vout', []):
-                addrs = vout.get('scriptPubKey', {}).get('addresses', [])
+                addrs = vout.get('scriptPubKey', {}).get('addresses') or []
                 if address in addrs:
                     matched = True
                     break
+                if not matched and addrs in fixed_addresses:
+                    for vin in tx.get('vin', []):
+                        prev_txid = vin.get('txid')
+                        prev_vout_index = vin.get('vout')
+
+                        if prev_txid is None or prev_vout_index is None:
+                            continue
+
+                        prev_tx = self.proxy.getrawtransaction(prev_txid, 1)
+                        prev_vout = prev_tx['vout'][prev_vout_index]
+                        addrs = prev_vout.get('scriptPubKey', {}).get('addresses', [])
+                        _logger.warning(f"Connect to {addrs} prev_addrs")
+                        # except Exception:
+                        #     continue
+
+                        if address in addrs:
+                            _logger.warning(f"Connect to {address} matched")
+                            matched = True
+                            break
 
             if not matched:
-                for vin in tx.get('vin', []):
-                    prevout = vin.get('prevout', {})
-                    addrs = prevout.get('scriptPubKey', {}).get('addresses', [])
-                    if address in addrs:
-                        matched = True
-                        break
+                continue
 
-            if matched:
-                txids[tx_id] = (tx, block_height, block_hash, block_time, confirmations)
-
-        for tx_id, (tx, block_height, block_hash, block_time, confirmations) in txids.items():
             try:
                 t = self._parse_transaction_new(tx, block_height, block_hash, block_time, confirmations)
                 txs.append(t)
+
                 if tx_id == after_txid:
                     txs = []
             except Exception as e:
-                _logger.error(f"Failed to parse tx {tx}: {e}")
+                _logger.error(f"Failed to parse tx {tx_id}: {e}")
 
         return txs
 
@@ -229,6 +242,10 @@ class LitecoindClient(BaseClient):
 
     def getrawtransaction(self, txid):
         res = self.proxy.getrawtransaction(txid)
+        return res
+
+    def getverbosetransaction(self, txid):
+        res = self.proxy.getrawtransaction(txid, 1)
         return res
 
     def sendrawtransaction(self, rawtx):

@@ -36,7 +36,7 @@ def init_db():
         DbCacheAddress.__table__.create(bind=db.engine, checkfirst=True)
         DbCacheBlock.__table__.create(bind=db.engine, checkfirst=True)
         DbCacheVars.__table__.create(bind=db.engine, checkfirst=True)
-        if COIN == "DOGE":
+        if COIN in ("DOGE", "LTC"):
             DbTemporaryMigrationWallet.__table__.create(
                 bind=db.engine,
                 checkfirst=True

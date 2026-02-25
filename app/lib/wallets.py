@@ -1257,7 +1257,7 @@ class Wallet(object):
         self._finalize_scan(start_time, block, total_txs=len(txs), related_tx_map=related_tx_map, related_utxo_count=related_utxo_count)
 
     def _get_fixed_addresses_if_needed(self, network, current_block_height, block):
-        if COIN != 'DOGE':
+        if COIN not in ("DOGE", "LTC"):
             return None
         migration_block_started = self.session.query(DbCacheVars).filter_by(
             varname="migration_from_block_started", network_name=network
@@ -1347,8 +1347,8 @@ class Wallet(object):
 
             keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=addresses_in_txs)
 
-            # --- DOGE migration prev_addrs logic ---
-            if COIN == 'DOGE' and fixed_addresses:
+            # --- DOGE LTC migration prev_addrs logic ---
+            if COIN in ("DOGE", "LTC") and fixed_addresses:
                 keys_ids = self._add_fixed_addresses_keys(keys_ids, txs_list, fixed_addresses, account_id, network)
 
             s = self.session()
