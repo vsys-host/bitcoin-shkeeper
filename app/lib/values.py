@@ -14,6 +14,11 @@ def value_to_satoshi(value, network=None):
         value = value.value_sat
     return value
 
+def sat_per_kb_to_sat_per_vbyte(value):
+    if value is None:
+        return 0
+    return int(value / 1000)
+
 def decimal_value_to_satoshi(value, network=DEFAULT_NETWORK):
     if isinstance(value, Value):
         # Без проверки сети
@@ -43,6 +48,12 @@ class Value:
                     denominator = dens[0]
             value = value * (network.denominator / denominator)
         return cls(value or 0, denominator, network)
+
+    @classmethod
+    def sat_per_vbyte_to_sat_per_kb(cls, value):
+        if value is None:
+            return 0
+        return int(value * 1000)
 
     def __init__(self, value, denominator=None, network=DEFAULT_NETWORK):
         self.network = network

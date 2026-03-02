@@ -17,7 +17,7 @@ DB_NAME_MAP = {
     "DOGE": "dogecoin-shkeeper",
 }
 FULLNODE_URL =  {
-                  "BTC": "http://shkeeper:shkeeper@fullnode.bitcoin.shkeeper.io:8332",
+                  "BTC": "http://bitcoinuser:bitcoinpass@195.66.213.33:18332",
                   "LTC": "http://shkeeper:shkeeper@fullnode.litecoin.shkeeper.io",
                   "DOGE": "http://shkeeper:shkeeper@fullnode.dogecoin.shkeeper.io"
                 }
@@ -53,7 +53,7 @@ config = {
     'MIN_CONFIRMS': os.environ.get('MIN_CONFIRMS', "1"),
     'WALLET_DAT_PATH': os.environ.get('WALLET_DAT_PATH', BASE_WALLET_PATHS[COIN]),
     'TIME_WALLET_CREATED': os.environ.get('TIME_WALLET_CREATED'),
-    'COIN_NETWORK': os.environ.get(f"{COIN}_NETWORK", "main"),  # main, testnet, regtest
+    'COIN_NETWORK': os.environ.get(f"{COIN}_NETWORK", "testnet"),  # main, testnet, regtest
 }
 
 def is_test_network():
