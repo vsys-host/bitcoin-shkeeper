@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # python manage.py init_db
 import sys
+import os
 from app import create_app, db
 from app.config import COIN
 from app.models import (
@@ -8,6 +9,8 @@ from app.models import (
     DbCacheTransaction, DbCacheTransactionNode, DbCacheAddress,
     DbCacheBlock, DbCacheVars, DbTemporaryMigrationWallet
 )
+from alembic.config import Config
+from alembic import command
 
 def wait_for_db(engine, timeout=30):
     import time
@@ -20,6 +23,14 @@ def wait_for_db(engine, timeout=30):
         except OperationalError:
             time.sleep(1)
     raise RuntimeError("DB not ready after waiting")
+
+def run_alembic_upgrade():
+    app = create_app()
+    with app.app_context():
+        alembic_cfg = Config(os.path.join(os.path.dirname(__file__), "alembic.ini"))
+        alembic_cfg.set_main_option("sqlalchemy.url", str(db.engine.url))
+        command.upgrade(alembic_cfg, "head")
+        print("Alembic migrations applied.")
 
 def init_db():
     app = create_app()
@@ -42,16 +53,18 @@ def init_db():
                 checkfirst=True
             )
         print("Tables created.")
+        # 🚀 Apply Alembic migration
+        run_alembic_upgrade()
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python manage.py init_db")
         sys.exit(1)
 
-    command = sys.argv[1]
+    cmd = sys.argv[1]
 
-    if command == "init_db":
+    if cmd == "init_db":
         init_db()
     else:
-        print(f"Unknown command: {command}")
+        print(f"Unknown command: {cmd}")
         sys.exit(1)
