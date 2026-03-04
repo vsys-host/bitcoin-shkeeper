@@ -297,8 +297,8 @@
       "denominator": 0.00000001,
       "dust_amount": 1000,
       "fee_default": 10000,
-      "fee_min": 1000,
-      "fee_max": 1000000,
+      "fee_min": 1000000,
+      "fee_max": 10000000000,
       "priority": 2
     },
     "main": {
@@ -320,9 +320,9 @@
       "bip44_cointype": 3,
       "denominator": 0.00000001,
       "dust_amount": 1000,
-      "fee_default": 1000000,
-      "fee_min":     1000,
-      "fee_max":   100000000,
+      "fee_default": 20000000,
+      "fee_min":     1000000,
+      "fee_max":   10000000000,
       "priority": 10
     },
     "testnet": {

@@ -6,6 +6,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.dialects.mysql import VARBINARY
 from sqlalchemy.orm import sessionmaker, relationship, session
 from sqlalchemy import BLOB, TypeDecorator, String, func
+from sqlalchemy.dialects.mysql import MEDIUMBLOB
 from hashlib import sha256
 from app.lib.encoding import aes_decrypt, aes_encrypt, double_sha256
 from app.unlock_acc import get_account_password
@@ -142,7 +143,8 @@ class DbTransaction(db.Model):
     output_total = db.Column(db.BigInteger, default=0)
     network_name = db.Column(db.String(20))
     network = db.Column(db.String(20))
-    raw = db.Column(db.BLOB)
+    raw = db.Column(MEDIUMBLOB)
+    # raw = db.Column(db.BLOB)
     verified = db.Column(db.Boolean, default=False)
     index = db.Column(db.Integer)
 
