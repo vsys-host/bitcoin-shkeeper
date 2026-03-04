@@ -58,38 +58,22 @@ def create_tables_and_columns():
 
         for model in models:
             model.__table__.create(bind=db.engine, checkfirst=True)
-        if COIN == "DOGE":
-            DbTemporaryMigrationWallet.__table__.create(
-                bind=db.engine,
-                checkfirst=True
-            )    
-
-        transaction_new_columns = {
-            'tx_type': 'VARCHAR(255)',
-            'uid': 'VARCHAR(255)',
-            'score': 'NUMERIC(7,5) DEFAULT -1',
-            'aml_status': 'VARCHAR(255)'
-        }
-
-        add_new_columns(DbTransaction, transaction_new_columns)
-
-        print("Tables and new columns updated.")
-        DbWallet.__table__.create(bind=db.engine, checkfirst=True)
-        DbTransaction.__table__.create(bind=db.engine, checkfirst=True)
-        DbKey.__table__.create(bind=db.engine, checkfirst=True)
-        DbTransactionInput.__table__.create(bind=db.engine, checkfirst=True)
-        DbTransactionOutput.__table__.create(bind=db.engine, checkfirst=True)
-        DbCacheTransaction.__table__.create(bind=db.engine, checkfirst=True)
-        DbCacheTransactionNode.__table__.create(bind=db.engine, checkfirst=True)
-        DbCacheAddress.__table__.create(bind=db.engine, checkfirst=True)
-        DbCacheBlock.__table__.create(bind=db.engine, checkfirst=True)
-        DbCacheVars.__table__.create(bind=db.engine, checkfirst=True)
         if COIN in ("DOGE", "LTC"):
             DbTemporaryMigrationWallet.__table__.create(
                 bind=db.engine,
                 checkfirst=True
             )
-        print("Tables created.")
+
+        # transaction_new_columns = {
+        #     'tx_type': 'VARCHAR(255)',
+        #     'uid': 'VARCHAR(255)',
+        #     'score': 'NUMERIC(7,5) DEFAULT -1',
+        #     'aml_status': 'VARCHAR(255)'
+        # }
+
+        # add_new_columns(DbTransaction, transaction_new_columns)
+
+        print("Tables and new columns updated.")
         # 🚀 Apply Alembic migration
         run_alembic_upgrade()
 
