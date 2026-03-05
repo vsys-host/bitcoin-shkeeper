@@ -25,17 +25,6 @@ def wait_for_db(engine, timeout=30):
             time.sleep(1)
     raise RuntimeError("DB not ready after waiting")
 
-def add_new_columns(model, columns: dict):
-    table_name = model.__tablename__
-    inspector = inspect(db.engine)
-    existing_columns = [c['name'] for c in inspector.get_columns(table_name)]
-
-    with db.engine.connect() as conn:
-        for col_name, col_type in columns.items():
-            if col_name not in existing_columns:
-                print(f"Adding column {col_name} to {table_name}")
-                conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}'))
-
 def run_alembic_upgrade():
     app = create_app()
     with app.app_context():
@@ -63,15 +52,6 @@ def create_tables_and_columns():
                 bind=db.engine,
                 checkfirst=True
             )
-
-        # transaction_new_columns = {
-        #     'tx_type': 'VARCHAR(255)',
-        #     'uid': 'VARCHAR(255)',
-        #     'score': 'NUMERIC(7,5) DEFAULT -1',
-        #     'aml_status': 'VARCHAR(255)'
-        # }
-
-        # add_new_columns(DbTransaction, transaction_new_columns)
 
         print("Tables and new columns updated.")
         # 🚀 Apply Alembic migration
