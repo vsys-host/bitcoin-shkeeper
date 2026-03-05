@@ -120,18 +120,6 @@ def list_unique_wallet_addresses(batch_size=1000):
         offset += batch_size
     return sorted(addresses)
 
-def save_doge_addresses(session, addresses, network):
-    for addr in addresses:
-        exists = session.query(DbTemporaryMigrationWallet.id)\
-            .filter_by(address=addr, network=network)\
-            .first()
-        if exists:
-            continue
-        session.add(DbTemporaryMigrationWallet(
-            address=addr,
-            network=network
-        ))
-
 def time_wallet_created():
     configured_time = config.get("TIME_WALLET_CREATED")
     if configured_time:
@@ -161,6 +149,18 @@ def get_descriptors():
     except requests.exceptions.RequestException:
         get_descriptors = False
     return get_descriptors
+
+def save_migrated_addresses(session, addresses, network):
+    for addr in addresses:
+        exists = session.query(DbTemporaryMigrationWallet.id)\
+            .filter_by(address=addr, network=network)\
+            .first()
+        if exists:
+            continue
+        session.add(DbTemporaryMigrationWallet(
+            address=addr,
+            network=network
+        ))
 
 def get_main_key(descriptors):
     last_desc = descriptors['descriptors'][-1]['desc']
@@ -217,6 +217,33 @@ def generate_addresses(coin_wallet, current_index_path, quantity_generated_addre
         addr = keys[0].address
         yield path, addr
 
+def list_unique_wallet_addresses(batch_size=1000):
+    addresses = set()
+    offset = 0
+    while True:
+        response = requests.post(
+            "http://" + gethost(),
+            auth=get_rpc_credentials(),
+            json=build_rpc_request(
+                "listtransactions",
+                "*",
+                batch_size,
+                offset
+            ),
+            timeout=30,
+        ).json()
+        batch = response.get("result", [])
+        if not batch:
+            break
+        for tx in batch:
+            addr = tx.get("address")
+            if addr:
+                addresses.add(addr)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
+    return sorted(addresses)
+
 def mark_wallet_migrated(session, coin_wallet, height):
     network = coin_wallet.network.name
     value = str(height - 20)
@@ -225,7 +252,7 @@ def mark_wallet_migrated(session, coin_wallet, height):
         record.value = value
     else:
         session.add(DbCacheVars(varname="last_scanned_block", network_name=network, value=value, type="int", expires=None))
-    if COIN == 'DOGE':
+    if COIN in ("DOGE", "LTC"):
         migration_block_started = session.query(DbCacheVars).filter_by(varname="migration_from_block_started", network_name=network).first()
         last_block = CoinWallet().get_last_block_number()
         if migration_block_started:
@@ -520,8 +547,13 @@ def _migrate_ltc():
         print(f"Path: {path} → Address: {addr}")
     
     session = db.session
+    addresses = list_unique_wallet_addresses()
+    save_migrated_addresses(
+        session=session,
+        addresses=addresses,
+        network=config['COIN_NETWORK']
+    )
     mark_wallet_migrated(session, coin_wallet, closest["height"])
-
     if litecoind_proc:
         litecoind_proc.terminate()
         litecoind_proc.wait()
@@ -631,7 +663,7 @@ def _migrate_doge():
 
     addresses = list_unique_wallet_addresses()
     session = db.session
-    save_doge_addresses(
+    save_migrated_addresses(
         session=session,
         addresses=addresses,
         network=config['COIN_NETWORK']

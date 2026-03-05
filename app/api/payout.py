@@ -4,7 +4,7 @@ from sqlalchemy.exc import PendingRollbackError
 from app.db_import import db
 import decimal
 from app.celery_app import celery
-from app.lib.values import decimal_value_to_satoshi
+from app.lib.values import decimal_value_to_satoshi, sat_per_kb_to_sat_per_vbyte
 from ..tasks import make_multipayout 
 from . import api
 from ..wallet import CoinWallet
@@ -17,8 +17,8 @@ from app.config import COIN
 def calc_tx_fee(amount):
     if g.symbol == COIN:
         w = CoinWallet()
-        fee = w.get_transaction_price()
-        return {'accounts_num': 1, 'fee': float(fee), 'fee_satoshi': decimal_value_to_satoshi(fee) }
+        fee = decimal_value_to_satoshi(w.get_transaction_price())
+        return {'accounts_num': 1, 'fee': float(fee), 'fee_satoshi': sat_per_kb_to_sat_per_vbyte(fee) }
     else:
         return {'status': 'error', 'msg': 'unknown crypto' }
 
