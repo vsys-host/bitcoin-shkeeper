@@ -6,6 +6,7 @@ Create Date: 2026-03-04 12:00:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision = 'abc123def456'
@@ -15,14 +16,22 @@ depends_on = None
 
 
 def upgrade() -> None:
-    """Upgrade schema: add tx_type, uid, score, aml_status columns."""
-    op.add_column('transactions', sa.Column('tx_type', sa.String(255), nullable=True))
-    op.add_column('transactions', sa.Column('uid', sa.String(255), nullable=True))
-    op.add_column(
-        'transactions',
-        sa.Column('score', sa.Numeric(7,5), server_default='-1', nullable=True)
-    )
-    op.add_column('transactions', sa.Column('aml_status', sa.String(255), nullable=True))
+    """Upgrade schema: add tx_type, uid, score, aml_status columns only if missing."""
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    columns = [c['name'] for c in inspector.get_columns('transactions')]
+
+    if 'tx_type' not in columns:
+        op.add_column('transactions', sa.Column('tx_type', sa.String(255), nullable=True))
+    if 'uid' not in columns:
+        op.add_column('transactions', sa.Column('uid', sa.String(255), nullable=True))
+    if 'score' not in columns:
+        op.add_column(
+            'transactions',
+            sa.Column('score', sa.Numeric(7,5), server_default='-1', nullable=True)
+        )
+    if 'aml_status' not in columns:
+        op.add_column('transactions', sa.Column('aml_status', sa.String(255), nullable=True))
 
 
 def downgrade() -> None:
