@@ -1306,7 +1306,7 @@ class Wallet(object):
         return related_utxo_count
 
     def _process_vins(self, tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count, fixed_addresses):
-        if COIN == 'DOGE' and fixed_addresses:
+        if COIN in ("DOGE", "LTC") and fixed_addresses:
             for vout in tx.get('vout', []):
                 addrs = vout.get('scriptPubKey', {}).get('addresses') or []
                 if not set(addrs).intersection(fixed_addresses):
