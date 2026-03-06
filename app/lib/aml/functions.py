@@ -10,7 +10,7 @@ _logger = logging.getLogger(__name__)
 
 
 def get_min_check_amount(symbol: str) -> Decimal:
-    _logger.debug("get_min_check_amount")
+    _logger.info("aml get_min_check_amount")
     cfg = (
         config.get("EXTERNAL_DRAIN_CONFIG", {}).get("aml_check", {}).get("cryptos", {})
     )
@@ -23,9 +23,11 @@ def get_min_check_amount(symbol: str) -> Decimal:
 def get_external_drain_type(
     symbol: str,
 ) -> Literal["aml", "regular", "symbol_not_found"]:
-    _logger.debug("get_external_drain_type")
+    _logger.info("aml get_external_drain_type")
     cfg = config.get("EXTERNAL_DRAIN_CONFIG")
+    _logger.info("aml get_external_drain_type")
     if not cfg:
+        _logger.info("aml get_external_drain_type regular")
         return "regular"
 
     aml_cfg = cfg.get("aml_check", {})
@@ -40,9 +42,11 @@ def get_external_drain_type(
         return "symbol_not_found"
 
     if aml_cfg.get("state") == "enabled" and symbol in aml_cfg.get("cryptos", []):
+        _logger.info("aml get_external_drain_type aml")
         return "aml"
 
     if reg_cfg.get("state") == "enabled" and symbol in reg_cfg.get("cryptos", []):
+        _logger.info("aml get_external_drain_type regular")
         return "regular"
 
     return "regular"
@@ -50,7 +54,7 @@ def get_external_drain_type(
 
 def aml_check_transaction(address, txid_bytes):
     txid = txid_bytes.hex() if isinstance(txid_bytes, bytes) else txid_bytes
-    _logger.info(f"aml recheck transaction {txid}")
+    _logger.info(f"aml check transaction {txid}")
     cfg = config.get("EXTERNAL_DRAIN_CONFIG", {}).get("aml_check")
     if not cfg or cfg.get("state") != "enabled":
         return {}
@@ -72,11 +76,12 @@ def aml_check_transaction(address, txid_bytes):
         },
     )
     response.raise_for_status()
+    _logger.info(f"aml check transaction response {response}")
     return response.json()
 
 def aml_recheck_transaction(uid, txid_bytes):
     txid = txid_bytes.hex() if isinstance(txid_bytes, bytes) else txid_bytes
-    _logger.info(f"aml_recheck_transaction {txid}")
+    _logger.info(f"aml recheck transaction {txid}")
     cfg = config.get("EXTERNAL_DRAIN_CONFIG", {}).get("aml_check")
     if not cfg or cfg.get("state") != "enabled":
         return {}
@@ -84,7 +89,7 @@ def aml_recheck_transaction(uid, txid_bytes):
     token_string = f"{txid}:{cfg.get('access_key', '')}:{cfg.get('access_id', '')}"
     token = str(hashlib.md5(token_string.encode()).hexdigest())
     payload = f"uid={uid}&accessId={cfg.get('access_id', '')}&token={token}"
-    _logger.info(f"aml_recheck_transaction payload {payload}")
+    _logger.info(f"aml recheck transaction payload {payload}")
     headers = {}
     response = requests.post(
         f"{cfg.get('access_point', '')}/recheck",
@@ -92,6 +97,7 @@ def aml_recheck_transaction(uid, txid_bytes):
         data=payload,
     )
     response.raise_for_status()
+    _logger.info(f"aml recheck transaction response {response}")
     return response.json()
 
 

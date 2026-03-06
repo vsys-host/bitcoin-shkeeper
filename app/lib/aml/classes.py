@@ -21,12 +21,12 @@ class AmlWallet:
         from app.wallet import CoinWallet
         from .functions import build_payout_list
 
-        logger.info(f"===== BTC AmlWallet.payout_for_tx {tx_id} {account} =====")
+        logger.info(f"aml AmlWallet.payout_for_tx {tx_id} {account} =====")
 
         external_drain_list = build_payout_list(self.symbol, tx_id)
-        logger.info(f"external_drain_list: {external_drain_list}")
+        logger.info(f"aml external_drain_list: {external_drain_list}")
         if not external_drain_list:
-            logger.warning("No payouts to process, exiting method")
+            logger.warning("aml no payouts to process, exiting method")
             return False
 
         tx_id_bytes = bytes.fromhex(tx_id) if isinstance(tx_id, str) else tx_id
@@ -73,7 +73,7 @@ class AmlWallet:
             db.session.commit()
 
             tx.send()
-            logger.info(f"Transaction broadcasted: {txid_str}")
+            logger.info(f"aml transaction broadcasted: {txid_str}")
 
             (
                 db.session.query(DbAmlPayout)
@@ -86,7 +86,7 @@ class AmlWallet:
                 p["status"] = "success"
 
         except Exception as e:
-            logger.exception("Payout failed")
+            logger.exception("aml payout failed")
 
             db.session.rollback()
 
@@ -112,9 +112,9 @@ class AmlWallet:
         for payout in payout_results:
             txid_log = payout.get("txids")[0] if payout.get("txids") else ""
             logger.info(
-                f"{tx_id}: Sent {payout['amount']} {self.symbol} -> {payout['dest']} "
-                f"({txid_log}), status: {payout['status']}"
+                f"aml {tx_id}: Sent {payout['amount']} {self.symbol} -> {payout['dest']} "
+                f"aml ({txid_log}), status: {payout['status']}"
             )
 
-        logger.info(f"BTC payout process {tx_id}  complete payout_for_tx {payout_results}")
+        logger.info(f"aml payout process {tx_id}  complete payout_for_tx {payout_results}")
         return payout_results

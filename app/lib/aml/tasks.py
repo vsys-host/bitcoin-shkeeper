@@ -13,7 +13,7 @@ def update_transaction_status(
 ):
     tx = session.query(DbTransaction).filter(DbTransaction.txid == txid).first()
     if not tx:
-        logger.warning(f"Cannot find BTC tx {txid} in DB")
+        logger.warning(f"aml cannot find BTC tx {txid} in DB")
         return None
     tx.uid = uid
     tx.score = score
@@ -51,7 +51,7 @@ def process_aml_result(txid: str, key, result: dict):
     ):
         return "ready", result["data"]["uid"], result["data"]["riskscore"]
     else:
-        logger.warning(f"Cannot update BTC transaction {txid}, result: {result}")
+        logger.warning(f"aml cannot update BTC transaction {txid}, result: {result}")
         return None, None, None
 
 
@@ -89,14 +89,14 @@ def check_btc_transaction(self, txid: str):
 @celery.task(bind=True)
 def recheck_transaction(self, uid: str, txid: str):
     txid_bytes = bytes.fromhex(txid) if isinstance(txid, str) else txid
-    logger.warning(f"recheck_transaction txid_bytes {txid_bytes}")
+    logger.warning(f"aml recheck_transaction txid_bytes {txid_bytes}")
     tx = (
         db.session.query(DbTransaction)
         .filter(DbTransaction.txid == txid_bytes)
         .first()
     )
     if not tx:
-        logger.warning(f"BTC tx {txid} not found in DB")
+        logger.warning(f"aml tx {txid} not found in DB")
         return False
 
     keys = [out.key for out in tx.outputs if out.key]
@@ -115,13 +115,13 @@ def recheck_transaction(self, uid: str, txid: str):
             address = find_address(tx)
             if address:
                 run_payout_for_tx.delay(COIN, address, txid)
-                logger.info(f"BTC tx {txid} for key {address} ready for payout")
+                logger.info(f"aml tx {txid} for key {address} ready for payout")
     return True
 
 
 @celery.task(bind=True)
 def recheck_transactions(self):
-    logger.info("Rechecking BTC transactions...")
+    logger.info("aml task rechecking transactions...")
 
     txs = (
         db.session.query(DbTransaction)
@@ -141,6 +141,7 @@ def recheck_transactions(self):
 @celery.task(bind=True)
 def run_payout_for_tx(self, symbol, account, tx_id):
     from app.lib.aml.classes import AmlWallet
+    logger.info("aml task run_payout_for_tx...")
 
     wallet = AmlWallet(symbol=symbol)
     results = wallet.payout_for_tx(tx_id, account)
@@ -150,6 +151,7 @@ def run_payout_for_tx(self, symbol, account, tx_id):
 @celery.task(bind=True)
 def check_transaction(self, symbol: str, account: str, txid: str):
     from app.lib.aml.tasks import run_payout_for_tx
+    logger.info("aml task check transaction...")
 
     result = aml_check_transaction(account, txid)
     status, uid, score = process_aml_result(txid, None, result)

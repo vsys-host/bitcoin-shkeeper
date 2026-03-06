@@ -1998,10 +1998,12 @@ class Wallet(object):
     def check_aml_transaction(self, txid):
         if COIN != 'BTC':
             return
+        _logger.info("aml check_aml_transaction")
         if config['EXTERNAL_DRAIN_CONFIG']:
+            _logger.info("aml config EXTERNAL_DRAIN_CONFIG")
             drain_type = get_external_drain_type(COIN)
-            _logger.warning(f"Run payout for tx txid {txid}")
-            _logger.warning(f"NRun payout for drain_type {drain_type}")
+            _logger.warning(f"aml payout for tx txid {txid}")
+            _logger.warning(f"aml payout for drain_type {drain_type}")
             tx = db.session.query(DbTransaction).filter(DbTransaction.txid == bytes.fromhex(txid)).first()
             if not tx:
                 return
@@ -2014,11 +2016,11 @@ class Wallet(object):
                 .first()
             )
             if not key_obj:
-                _logger.info(f"No internal address found for tx {txid}")
+                _logger.info(f"aml no internal address found for tx {txid}")
                 return
 
             account = key_obj.address
-            _logger.warning(f"Run payout for {account}")
+            _logger.warning(f"aml run payout for {account}")
             min_confirms = config.get('MIN_CONFIRMS', 0)
             amount = (
                 db.session.query(func.coalesce(func.sum(DbTransactionOutput.value), 0))
@@ -2030,9 +2032,9 @@ class Wallet(object):
                 )
                 .scalar()
             )    
-            _logger.warning(f"Run payout for amount {amount}")
+            _logger.warning(f"aml run payout for amount {amount}")
             if drain_type == "aml" and Value.from_satoshi(amount).value > get_min_check_amount(COIN):
-                _logger.warning(f"Notifying drain_type {drain_type} aml")
+                _logger.warning(f"aml notifying drain_type {drain_type} aml")
                 check_transaction.delay(COIN, account, txid)
                 tx.tx_type = "aml"
                 tx.aml_status = "pending"
