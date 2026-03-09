@@ -1215,7 +1215,6 @@ class Wallet(object):
             key = self.key(key)
 
         txs_found = False
-        # seen_txids = set()
 
         while True:
             n_new_txids = self.transactions_update(key_id=key.id, txs_list=txs_list, fixed_addresses=fixed_addresses)
@@ -1351,8 +1350,7 @@ class Wallet(object):
             n_highest_updated = 0
             something_new = False
             _logger.warning(f"addresses_in_txs keys using {addresses_in_txs} threads")
-            keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=addresses_in_txs)
-            # keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=list(seen_addresses))
+            keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=list(seen_addresses))
             _logger.warning(f"addresses_in_txs keys_ids using {keys_ids} threads")
             # --- DOGE LTC migration prev_addrs logic ---
             if COIN in ("DOGE", "LTC") and fixed_addresses:
@@ -1371,7 +1369,6 @@ class Wallet(object):
             finally:
                 s.expunge_all()
                 s.close()
-            _logger.warning(f"_scan_keys_loop {something_new} keys n_highest_updated {n_highest_updated}")
             if not something_new or not n_highest_updated:
                 break
 
@@ -1398,13 +1395,11 @@ class Wallet(object):
                         continue
                     _logger.warning(f"FOUND extra prev_addrs from DOGE migration: {new_prev_addrs}")
                     seen_addresses.update(new_prev_addrs)
-                    # addresses=new_prev_addrs)
                     extra_keys_ids.extend(
                         get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=new_prev_addrs)
                     )
         if extra_keys_ids:
             _logger.warning(f"FOUND extra keys_ids from DOGE migration: {extra_keys_ids}")
-        # _logger.warning(f"FOUND vasa extra_keys_ids from DOGE migration: {extra_keys_ids}")
         return list(set(keys_ids + extra_keys_ids))
 
     def _scan_keys_in_threads(self, keys, txs_list, fixed_addresses, max_retries, retry_delay, threads, seen_txids):
