@@ -2,6 +2,7 @@ from datetime import datetime
 import json
 import pickle
 import random
+from app.config import COIN
 from io import BytesIO
 from app.lib.encoding import *
 from app.lib.keys import HDKey, Key, deserialize_address, Address, sign, verify, Signature
@@ -525,7 +526,6 @@ class Transaction(object):
         elif isinstance(rawtx, str):
             raw_bytes = bytes.fromhex(rawtx)
             rawtx = BytesIO(bytes.fromhex(rawtx))
-
         return cls.parse_bytesio(rawtx, strict, network, raw_bytes=raw_bytes, default_txid=default_txid)
 
     @classmethod
@@ -625,9 +625,10 @@ class Transaction(object):
             raw_len = pos_end - pos_start
             rawtx.seek(pos_start)
             raw_bytes = rawtx.read(raw_len)
-
-        txid = default_txid if witness_type == 'segwit' else double_sha256(raw_bytes)[::-1].hex()
-
+        if COIN == 'BTC':
+            txid = default_txid if witness_type == 'segwit' else double_sha256(raw_bytes)[::-1].hex()
+        else:
+            txid = default_txid
         return Transaction(inputs, outputs, locktime, version, network, size=raw_len, output_total=output_total,
                            coinbase=coinbase, flag=flag, witness_type=witness_type, rawtx=raw_bytes, index=index,
                            txid=txid)
