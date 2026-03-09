@@ -31,9 +31,12 @@ external_raw = os.environ.get("EXTERNAL_DRAIN_CONFIG")
 if external_raw:
     try:
         EXTERNAL_DRAIN_CONFIG = json.loads(external_raw)
-    except Exception:
+        print(f"aml config {EXTERNAL_DRAIN_CONFIG}")
+    except Exception as e:
+        print(f"aml error config {e}")
         EXTERNAL_DRAIN_CONFIG = None
 else:
+    print("aml config not setted")
     EXTERNAL_DRAIN_CONFIG = None
 
 config = {
