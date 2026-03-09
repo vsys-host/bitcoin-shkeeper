@@ -11,6 +11,7 @@ from fastecdsa.util import RFC6979
 from fastecdsa.curve import secp256k1 as fastecdsa_secp256k1
 from fastecdsa import keys as fastecdsa_keys
 from fastecdsa import point as fastecdsa_point
+from app.config import COIN
 _logger = logging.getLogger(__name__)
 
 
@@ -174,6 +175,10 @@ def deserialize_address(address, encoding=None, network=None):
                 elif networks_p2sh:
                     script_type = 'p2sh'
                     networks = networks_p2sh
+                if COIN == 'LTC' and not networks and not networks_p2pkh and not networks_p2sh:
+                    script_type = 'p2sh'
+                    witness_type = 'legacy'
+                    networks = config['COIN_NETWORK']
                 if network:
                     if network not in networks:
                         raise BKeyError("Network %s not found in extracted networks: %s" % (network, networks))

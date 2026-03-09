@@ -41,8 +41,9 @@ def get_all_key_ids(session, wallet_id, account_id=None, witness_type=None, netw
         q = q.filter(DbKey.witness_type == witness_type)
     if network is not None:
         q = q.filter(DbKey.network_name == network)
-    if addresses:
-        q = q.filter(DbKey.address.in_(addresses))
+    # if addresses:
+    _logger.warning(f"addresses_in_txs keys_ids get_all_key_ids {addresses} threads")
+    q = q.filter(DbKey.address.in_(addresses))
 
     q = q.order_by(asc(DbKey.id))
     return [kid for (kid,) in q.all()]
@@ -1209,26 +1210,25 @@ class Wallet(object):
     def new_key_change(self, name='', account_id=None, witness_type=None, network=None):
         return self.new_key(name=name, account_id=account_id, witness_type=witness_type, network=network, change=1)
 
-    def scan_key(self, key, txs_list, fixed_addresses):
+    def scan_key(self, key, txs_list, fixed_addresses, seen_txids):
         if isinstance(key, int):
             key = self.key(key)
+
         txs_found = False
-        iteration_count = 0
 
         while True:
-            iteration_count += 1
-            n_new = self.transactions_update(key_id=key.id, txs_list=txs_list, fixed_addresses=fixed_addresses)
+            n_new_txids = self.transactions_update(key_id=key.id, txs_list=txs_list, fixed_addresses=fixed_addresses)
+            _logger.warning(f"Scanned transactions_update {n_new_txids} transactions")
+            txid_set = set(tx.txid for tx in n_new_txids)
 
-            _logger.info("Scanned key %d, %s Found %d new transactions (iteration %d)" %
-                        (key.id, key.address, n_new, iteration_count))
-
-            if n_new:
-                txs_found = True
-
-            if not n_new or iteration_count >= 10:
-                if iteration_count >= 10:
-                    _logger.warning(f"Maximum 10 iterations reached for scan_key({key.id}), exiting")
+            new_txids = txid_set - seen_txids
+            if not new_txids:
                 break
+
+            seen_txids.update(new_txids)
+            txs_found = True
+
+            _logger.info(f"Scanned key {key.id}, {key.address} Found {len(new_txids)} new transactions")
 
         return txs_found
 
@@ -1298,11 +1298,13 @@ class Wallet(object):
             spk = vout.get('scriptPubKey', {})
             addrs = spk.get('addresses') or ([spk.get('address')] if spk.get('address') else [])
             for addr in addrs:
+                if addr not in wallet_addresses_set:
+                    continue
                 addresses_in_txs.add(addr)
                 if addr in wallet_addresses_set:
                     tx_related_addresses.add(addr)
                     related_utxo_count += 1
-                    _logger.debug(f"[VOUT] TXID: {tx.get('txid')} → {addr}")
+                    _logger.warning(f"[VOUT] TXID: {tx.get('txid')} → {addr}")
         return related_utxo_count
 
     def _process_vins(self, tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count, fixed_addresses):
@@ -1323,7 +1325,7 @@ class Wallet(object):
                     if addr in wallet_addresses_set:
                         tx_related_addresses.add(addr)
                         related_utxo_count += 1
-                        _logger.debug(f"[VIN] TXID: {tx.get('txid')} → {addr}")
+                        _logger.warning(f"[VIN] TXID: {tx.get('txid')} → {addr}")
 
     def _update_db_transactions(self, network):
         db_txs = self.session.query(DbTransaction).filter(
@@ -1341,21 +1343,25 @@ class Wallet(object):
         RETRY_DELAY = 2
         THREADS = config['EVENTS_MAX_THREADS_NUMBER']
 
+        seen_txids = set()
+        seen_addresses = set(addresses_in_txs)
+
         while True:
             n_highest_updated = 0
             something_new = False
-
-            keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=addresses_in_txs)
-
+            _logger.warning(f"addresses_in_txs keys using {addresses_in_txs} threads")
+            keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=list(seen_addresses))
+            _logger.warning(f"addresses_in_txs keys_ids using {keys_ids} threads")
             # --- DOGE LTC migration prev_addrs logic ---
             if COIN in ("DOGE", "LTC") and fixed_addresses:
-                keys_ids = self._add_fixed_addresses_keys(keys_ids, txs_list, fixed_addresses, account_id, network)
+                keys_ids = self._add_fixed_addresses_keys(keys_ids, txs_list, fixed_addresses, account_id, network, seen_addresses)
+                _logger.warning(f"addresses_in_txs keys_ids _add_fixed_addresses_keys fixed_addresses {keys_ids} threads")
 
             s = self.session()
             try:
                 keys = s.query(DbKey).filter(DbKey.id.in_(keys_ids)).all()
                 _logger.warning(f"Scanning {len(keys)} keys using {THREADS} threads")
-                something_new, n_highest_updated = self._scan_keys_in_threads(keys, txs_list, fixed_addresses, MAX_RETRIES, RETRY_DELAY, THREADS)
+                something_new, n_highest_updated = self._scan_keys_in_threads(keys, txs_list, fixed_addresses, MAX_RETRIES, RETRY_DELAY, THREADS, seen_txids)
                 s.commit()
             except Exception:
                 s.rollback()
@@ -1363,12 +1369,11 @@ class Wallet(object):
             finally:
                 s.expunge_all()
                 s.close()
-
             if not something_new or not n_highest_updated:
                 break
 
 
-    def _add_fixed_addresses_keys(self, keys_ids, txs_list, fixed_addresses, account_id, network):
+    def _add_fixed_addresses_keys(self, keys_ids, txs_list, fixed_addresses, account_id, network, seen_addresses):
         extra_keys_ids = []
         for tx in txs_list.get('tx', []):
             for vout in tx.get('vout', []):
@@ -1385,14 +1390,19 @@ class Wallet(object):
                     prev_tx = srv.getverbosetransaction(prev_txid)
                     prev_vout = prev_tx['vout'][prev_vout_index]
                     prev_addrs = prev_vout.get('scriptPubKey', {}).get('addresses') or []
+                    new_prev_addrs = [a for a in prev_addrs if a not in seen_addresses]
+                    if not new_prev_addrs:
+                        continue
+                    _logger.warning(f"FOUND extra prev_addrs from DOGE migration: {new_prev_addrs}")
+                    seen_addresses.update(new_prev_addrs)
                     extra_keys_ids.extend(
-                        get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=prev_addrs)
+                        get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=new_prev_addrs)
                     )
         if extra_keys_ids:
             _logger.warning(f"FOUND extra keys_ids from DOGE migration: {extra_keys_ids}")
         return list(set(keys_ids + extra_keys_ids))
 
-    def _scan_keys_in_threads(self, keys, txs_list, fixed_addresses, max_retries, retry_delay, threads):
+    def _scan_keys_in_threads(self, keys, txs_list, fixed_addresses, max_retries, retry_delay, threads, seen_txids):
         something_new = False
         n_highest_updated = 0
 
@@ -1405,7 +1415,7 @@ class Wallet(object):
                     for attempt in range(max_retries):
                         try:
                             with log_time(f"scan key started {key.address}"):
-                                got_new = self.scan_key(key, txs_list, fixed_addresses)
+                                got_new = self.scan_key(key, txs_list, fixed_addresses, seen_txids)
                                 _logger.warning("scan key finished")
                             return (key.address_index, got_new)
                         except OperationalError as e:
@@ -2070,7 +2080,7 @@ class Wallet(object):
         for txid in txids_to_notify:
             notify_shkeeper(COIN, txid)
 
-        return len(txs)
+        return txs
 
     def transaction_last(self, address):
         txid = self.session.query(DbKey.latest_txid).\
