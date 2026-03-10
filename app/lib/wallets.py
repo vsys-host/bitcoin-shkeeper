@@ -2519,7 +2519,8 @@ class Wallet(object):
         transaction.calc_weight_units()
         transaction.fee_per_kb = int(float(transaction.fee) / float(transaction.vsize) * 1000)
         transaction.txid = transaction.signature_hash()[::-1].hex()
-        _logger.info(f"Transaction txid {transaction.txid }")
+        _logger.warning(f"Transaction txid {transaction.txid }")
+        _logger.warning(f"Transaction size {transaction.size }")
         transaction.send(broadcast)
         return transaction
 
