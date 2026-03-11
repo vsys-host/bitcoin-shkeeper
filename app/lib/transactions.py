@@ -1170,8 +1170,19 @@ class Transaction(object):
             self.fee_per_kb = self.network.fee_min
         elif self.fee_per_kb > self.network.fee_max:
             self.fee_per_kb = self.network.fee_max
+        _logger.warning(f"calculated vsize old {self.vsize}")
         if not self.vsize:
             self.estimate_size()
+        else:
+            old_vsize = self.vsize
+            _logger.warning(f"calculated vsize old_vsize {old_vsize}")
+            self.estimate_size()
+            if self.vsize > old_vsize:
+                _logger.warning(f"updated vsize new {self.vsize}")
+            elif self.vsize < old_vsize:
+                _logger.warning(f"vsize decreased, reverting to old {old_vsize}")
+                self.vsize = old_vsize
+
         fee = int(self.vsize / 1000.0 * self.fee_per_kb)
         _logger.warning(f"calculated vsize equal {self.vsize}")
         _logger.warning(f"calculated fee_per_kb equal {self.fee_per_kb}")
