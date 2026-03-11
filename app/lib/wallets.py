@@ -2389,6 +2389,8 @@ class Wallet(object):
         transaction.fee = fee
         fee_per_output = None
         transaction.size = transaction.estimate_size(number_of_change_outputs=number_of_change_outputs)
+        _logger.warning(f"transaction.raw {len(transaction.raw())}")
+        _logger.warning(f"transaction.size {transaction.size}")
         if fee is None:
             if not input_arr:
                 if not transaction.fee_per_kb:
@@ -2409,6 +2411,7 @@ class Wallet(object):
         else:
             transaction.change = int(amount_total_input - (amount_total_output + transaction.fee))
 
+        _logger.warning(f"transaction.change {transaction.change}")
         # Skip change if amount is smaller than the dust limit or estimated fee
         if (fee_per_output and transaction.change < fee_per_output) or transaction.change <= transaction.network.dust_amount:
             transaction.fee += transaction.change
@@ -2435,6 +2438,8 @@ class Wallet(object):
                     if number_of_change_outputs == 3:
                         number_of_change_outputs = random.randint(3, 4)
                 transaction.size = transaction.estimate_size(number_of_change_outputs=number_of_change_outputs)
+                _logger.warning(f"transaction.raw change {len(transaction.raw())}")
+                _logger.warning(f"transaction.size change {transaction.size}")
 
             average_change = transaction.change // number_of_change_outputs
             if number_of_change_outputs > 1 and average_change < min_output_value:
@@ -2499,10 +2504,16 @@ class Wallet(object):
                                               random_output_order, replace_by_fee, fee_per_kb=fee_per_kb)
         _logger.info(f"Transaction {transaction}")
         transaction.sign(priv_keys)
+        fee_exact = transaction.calculate_fee()
+        _logger.info(f"Transaction calculated transaction fee {transaction.fee}")
+        _logger.info(f"Transaction fee {fee}")
+        _logger.info(f"Transaction fee_per_kb {fee_per_kb}")
+        _logger.info(f"Transaction fee_exact {fee_exact}")
+        _logger.warning(f"Transaction size {transaction.size }")
+        _logger.warning(f"Transaction vsize {transaction.vsize }")
+        _logger.info(f"Transaction transaction.change {transaction.change}")
         # Calculate exact fees and update change output if necessary
-        if fee is None and transaction.fee_per_kb and transaction.change:
-            fee_exact = transaction.calculate_fee()
-            _logger.info(f"Transaction fee_exact {fee_exact}")
+        if (fee is None and transaction.fee_per_kb and transaction.change) or (fee_exact is not None and transaction.fee is not None and fee_exact > transaction.fee):
             # Recreate transaction if fee estimation more than 10% off
             if fee_exact != self.network.fee_min and fee_exact != self.network.fee_max and \
                     fee_exact and abs((float(transaction.fee) - float(fee_exact)) / float(fee_exact)) > 0.10:
@@ -2511,7 +2522,7 @@ class Wallet(object):
                 transaction = self.transaction_create(output_arr, input_arr, input_key_id, account_id, network,
                                                       fee_exact, min_confirms, max_utxos, locktime,
                                                       number_of_change_outputs, random_output_order,
-                                                      replace_by_fee)
+                                                      replace_by_fee, fee_per_kb=fee_per_kb)
                 transaction.sign(priv_keys)
 
         transaction.rawtx = transaction.raw()
