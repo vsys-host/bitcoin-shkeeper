@@ -41,7 +41,7 @@ def get_transaction(txid):
     for detail in transaction.get("details", []):
         address = detail.get("address")
         amount = detail.get('amount', 0)
-        category = detail.get("category")
+        category = detail.get("category", "change")
         related_transactions.append([
             address,
             amount,
