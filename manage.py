@@ -9,7 +9,6 @@ from app.models import (
     DbCacheTransaction, DbCacheTransactionNode, DbCacheAddress,
     DbCacheBlock, DbCacheVars, DbTemporaryMigrationWallet, DbAmlPayout
 )
-from sqlalchemy import inspect, text
 from alembic.config import Config
 from alembic import command
 
@@ -33,7 +32,7 @@ def run_alembic_upgrade():
         command.upgrade(alembic_cfg, "head")
         print("Alembic migrations applied.")
 
-def create_tables_and_columns():
+def init_db():
     app = create_app()
     with app.app_context():
         wait_for_db(db.engine)
@@ -65,7 +64,7 @@ if __name__ == "__main__":
     cmd = sys.argv[1]
 
     if cmd == "init_db":
-        create_tables_and_columns()
+        init_db()
     else:
         print(f"Unknown command: {cmd}")
         sys.exit(1)

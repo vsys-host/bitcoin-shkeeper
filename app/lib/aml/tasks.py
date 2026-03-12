@@ -37,29 +37,33 @@ def find_address(tx: DbTransaction):
 
 
 def process_aml_result(txid: str, key, result: dict):
-    if (
-        result["result"]
-        and result["data"].get("status") == "pending"
-        and "uid" in result["data"]
-    ):
-        return "rechecking", result["data"]["uid"], -1
-    elif (
-        result["result"]
-        and "riskscore" in result["data"]
-        and "uid" in result["data"]
-        and result["data"]["status"] == "success"
-    ):
-        return "ready", result["data"]["uid"], result["data"]["riskscore"]
-    else:
-        logger.warning(f"aml cannot update BTC transaction {txid}, result: {result}")
+
+    if not isinstance(result, dict):
+        logger.warning(f"AML invalid response for {txid}: {result}")
         return None, None, None
+
+    if not result.get("result"):
+        logger.warning(f"AML response has no result for {txid}: {result}")
+        return None, None, None
+
+    data = result.get("data", {})
+
+    if data.get("status") == "pending" and "uid" in data:
+        return "rechecking", data["uid"], -1
+
+    if data.get("status") == "success" and "uid" in data and "riskscore" in data:
+        return "ready", data["uid"], data["riskscore"]
+
+    logger.warning(f"AML cannot update BTC transaction {txid}, result: {result}")
+    return None, None, None
 
 
 @celery.task(bind=True)
 def check_btc_transaction(self, txid: str):
+    txid_bytes = bytes.fromhex(txid) if isinstance(txid, str) else txid
     tx = (
         db.session.query(DbTransaction)
-        .filter(DbTransaction.txid == bytes.fromhex(txid))
+        .filter(DbTransaction.txid == txid_bytes)
         .first()
     )
     if not tx:
@@ -89,7 +93,7 @@ def check_btc_transaction(self, txid: str):
 @celery.task(bind=True)
 def recheck_transaction(self, uid: str, txid: str):
     txid_bytes = bytes.fromhex(txid) if isinstance(txid, str) else txid
-    logger.warning(f"aml recheck_transaction txid_bytes {txid_bytes}")
+    logger.warning(f"aml recheck_transaction txid_bytes {txid}")
     tx = (
         db.session.query(DbTransaction)
         .filter(DbTransaction.txid == txid_bytes)
@@ -124,19 +128,22 @@ def recheck_transactions(self):
     logger.info("aml task rechecking transactions...")
 
     txs = (
-        db.session.query(DbTransaction)
-        .options(joinedload(DbTransaction.outputs).joinedload(DbTransactionOutput.key))
+        db.session.query(
+            DbTransaction.txid,
+            DbTransaction.uid,
+            DbTransaction.aml_status
+        )
         .filter(DbTransaction.aml_status.in_(["rechecking", "pending"]))
         .all()
     )
 
-    for tx in txs:
-        if tx.aml_status == "rechecking":
-            recheck_transaction.delay(uid=tx.uid, txid=tx.txid)
+    for txid, uid, status in txs:
+        if status == "rechecking":
+            recheck_transaction.delay(uid=uid, txid=txid)
         else:
-            check_btc_transaction.delay(txid=tx.txid)
-    return True
+            check_btc_transaction.delay(txid=txid)
 
+    return True
 
 @celery.task(bind=True)
 def run_payout_for_tx(self, symbol, account, tx_id):
@@ -159,10 +166,11 @@ def check_transaction(self, symbol: str, account: str, txid: str):
         logger.warning(f"Cannot update the transaction, something wrong - {result}")
         return False
 
+    txid_bytes = bytes.fromhex(txid) if isinstance(txid, str) else txid
     time.sleep(5)
     tx_db = (
         db.session.query(DbTransaction)
-        .filter(DbTransaction.txid == bytes.fromhex(txid))
+        .filter(DbTransaction.txid == txid_bytes)
         .first()
     )
     if not tx_db:

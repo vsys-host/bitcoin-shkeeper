@@ -45,8 +45,9 @@ def get_all_key_ids(session, wallet_id, account_id=None, witness_type=None, netw
         q = q.filter(DbKey.witness_type == witness_type)
     if network is not None:
         q = q.filter(DbKey.network_name == network)
-    if addresses:
-        q = q.filter(DbKey.address.in_(addresses))
+    # if addresses:
+    _logger.warning(f"addresses_in_txs keys_ids get_all_key_ids {addresses} threads")
+    q = q.filter(DbKey.address.in_(addresses))
 
     q = q.order_by(asc(DbKey.id))
     return [kid for (kid,) in q.all()]
@@ -1219,26 +1220,25 @@ class Wallet(object):
     def new_key_change(self, name='', account_id=None, witness_type=None, network=None):
         return self.new_key(name=name, account_id=account_id, witness_type=witness_type, network=network, change=1)
 
-    def scan_key(self, key, txs_list, fixed_addresses):
+    def scan_key(self, key, txs_list, fixed_addresses, seen_txids):
         if isinstance(key, int):
             key = self.key(key)
+
         txs_found = False
-        iteration_count = 0
 
         while True:
-            iteration_count += 1
-            n_new = self.transactions_update(key_id=key.id, txs_list=txs_list, fixed_addresses=fixed_addresses)
+            n_new_txids = self.transactions_update(key_id=key.id, txs_list=txs_list, fixed_addresses=fixed_addresses)
+            _logger.warning(f"Scanned transactions_update {n_new_txids} transactions")
+            txid_set = set(tx.txid for tx in n_new_txids)
 
-            _logger.info("Scanned key %d, %s Found %d new transactions (iteration %d)" %
-                        (key.id, key.address, n_new, iteration_count))
-
-            if n_new:
-                txs_found = True
-
-            if not n_new or iteration_count >= 10:
-                if iteration_count >= 10:
-                    _logger.warning(f"Maximum 10 iterations reached for scan_key({key.id}), exiting")
+            new_txids = txid_set - seen_txids
+            if not new_txids:
                 break
+
+            seen_txids.update(new_txids)
+            txs_found = True
+
+            _logger.info(f"Scanned key {key.id}, {key.address} Found {len(new_txids)} new transactions")
 
         return txs_found
 
@@ -1308,15 +1308,17 @@ class Wallet(object):
             spk = vout.get('scriptPubKey', {})
             addrs = spk.get('addresses') or ([spk.get('address')] if spk.get('address') else [])
             for addr in addrs:
+                if addr not in wallet_addresses_set:
+                    continue
                 addresses_in_txs.add(addr)
                 if addr in wallet_addresses_set:
                     tx_related_addresses.add(addr)
                     related_utxo_count += 1
-                    _logger.debug(f"[VOUT] TXID: {tx.get('txid')} → {addr}")
+                    _logger.warning(f"[VOUT] TXID: {tx.get('txid')} → {addr}")
         return related_utxo_count
 
     def _process_vins(self, tx, wallet_addresses_set, addresses_in_txs, tx_related_addresses, related_utxo_count, fixed_addresses):
-        if COIN == 'DOGE' and fixed_addresses:
+        if COIN in ("DOGE", "LTC") and fixed_addresses:
             for vout in tx.get('vout', []):
                 addrs = vout.get('scriptPubKey', {}).get('addresses') or []
                 if not set(addrs).intersection(fixed_addresses):
@@ -1333,7 +1335,7 @@ class Wallet(object):
                     if addr in wallet_addresses_set:
                         tx_related_addresses.add(addr)
                         related_utxo_count += 1
-                        _logger.debug(f"[VIN] TXID: {tx.get('txid')} → {addr}")
+                        _logger.warning(f"[VIN] TXID: {tx.get('txid')} → {addr}")
 
     def _update_db_transactions(self, network):
         db_txs = self.session.query(DbTransaction).filter(
@@ -1351,21 +1353,25 @@ class Wallet(object):
         RETRY_DELAY = 2
         THREADS = config['EVENTS_MAX_THREADS_NUMBER']
 
+        seen_txids = set()
+        seen_addresses = set(addresses_in_txs)
+
         while True:
             n_highest_updated = 0
             something_new = False
-
-            keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=addresses_in_txs)
-
+            _logger.warning(f"addresses_in_txs keys using {addresses_in_txs} threads")
+            keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=list(seen_addresses))
+            _logger.warning(f"addresses_in_txs keys_ids using {keys_ids} threads")
             # --- DOGE LTC migration prev_addrs logic ---
             if COIN in ("DOGE", "LTC") and fixed_addresses:
-                keys_ids = self._add_fixed_addresses_keys(keys_ids, txs_list, fixed_addresses, account_id, network)
+                keys_ids = self._add_fixed_addresses_keys(keys_ids, txs_list, fixed_addresses, account_id, network, seen_addresses)
+                _logger.warning(f"addresses_in_txs keys_ids _add_fixed_addresses_keys fixed_addresses {keys_ids} threads")
 
             s = self.session()
             try:
                 keys = s.query(DbKey).filter(DbKey.id.in_(keys_ids)).all()
                 _logger.warning(f"Scanning {len(keys)} keys using {THREADS} threads")
-                something_new, n_highest_updated = self._scan_keys_in_threads(keys, txs_list, fixed_addresses, MAX_RETRIES, RETRY_DELAY, THREADS)
+                something_new, n_highest_updated = self._scan_keys_in_threads(keys, txs_list, fixed_addresses, MAX_RETRIES, RETRY_DELAY, THREADS, seen_txids)
                 s.commit()
             except Exception:
                 s.rollback()
@@ -1373,12 +1379,11 @@ class Wallet(object):
             finally:
                 s.expunge_all()
                 s.close()
-
             if not something_new or not n_highest_updated:
                 break
 
 
-    def _add_fixed_addresses_keys(self, keys_ids, txs_list, fixed_addresses, account_id, network):
+    def _add_fixed_addresses_keys(self, keys_ids, txs_list, fixed_addresses, account_id, network, seen_addresses):
         extra_keys_ids = []
         for tx in txs_list.get('tx', []):
             for vout in tx.get('vout', []):
@@ -1395,14 +1400,19 @@ class Wallet(object):
                     prev_tx = srv.getverbosetransaction(prev_txid)
                     prev_vout = prev_tx['vout'][prev_vout_index]
                     prev_addrs = prev_vout.get('scriptPubKey', {}).get('addresses') or []
+                    new_prev_addrs = [a for a in prev_addrs if a not in seen_addresses]
+                    if not new_prev_addrs:
+                        continue
+                    _logger.warning(f"FOUND extra prev_addrs from DOGE migration: {new_prev_addrs}")
+                    seen_addresses.update(new_prev_addrs)
                     extra_keys_ids.extend(
-                        get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=prev_addrs)
+                        get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=new_prev_addrs)
                     )
         if extra_keys_ids:
             _logger.warning(f"FOUND extra keys_ids from DOGE migration: {extra_keys_ids}")
         return list(set(keys_ids + extra_keys_ids))
 
-    def _scan_keys_in_threads(self, keys, txs_list, fixed_addresses, max_retries, retry_delay, threads):
+    def _scan_keys_in_threads(self, keys, txs_list, fixed_addresses, max_retries, retry_delay, threads, seen_txids):
         something_new = False
         n_highest_updated = 0
 
@@ -1415,7 +1425,7 @@ class Wallet(object):
                     for attempt in range(max_retries):
                         try:
                             with log_time(f"scan key started {key.address}"):
-                                got_new = self.scan_key(key, txs_list, fixed_addresses)
+                                got_new = self.scan_key(key, txs_list, fixed_addresses, seen_txids)
                                 _logger.warning("scan key finished")
                             return (key.address_index, got_new)
                         except OperationalError as e:
@@ -2006,6 +2016,7 @@ class Wallet(object):
             _logger.warning(f"aml payout for drain_type {drain_type}")
             tx = db.session.query(DbTransaction).filter(DbTransaction.txid == bytes.fromhex(txid)).first()
             if not tx:
+                _logger.warning(f"aml no tx")
                 return
                 
             addresses = [out.address for out in tx.outputs if out.address]
@@ -2031,13 +2042,27 @@ class Wallet(object):
                     DbTransaction.confirmations >= min_confirms
                 )
                 .scalar()
-            )    
+            )
             _logger.warning(f"aml run payout for amount {amount}")
-            if drain_type == "aml" and Value.from_satoshi(amount).value > get_min_check_amount(COIN):
+            value_sat = Value.from_satoshi(amount).value
+            _logger.warning(f"aml run payout for value_sat {value_sat}")
+            min_check_amount = get_min_check_amount(COIN)
+            _logger.warning(f"aml run payout min_check_amount {min_check_amount}")
+            _logger.warning(f"aml run payout aml {drain_type}")
+            _logger.warning(f"aml run payout aml check {drain_type == 'aml'}")
+            _logger.warning(f"aml run payout aml compare {value_sat > min_check_amount}")
+            if drain_type == "aml" and value_sat > min_check_amount:
                 _logger.warning(f"aml notifying drain_type {drain_type} aml")
                 check_transaction.delay(COIN, account, txid)
                 tx.tx_type = "aml"
                 tx.aml_status = "pending"
+                tx.score = -1
+                db.session.commit()
+            if drain_type == "regular" and value_sat > min_check_amount:
+                _logger.warning(f"aml regular notifying {drain_type}")
+                check_transaction.delay(COIN, account, txid)
+                tx.tx_type = "regular"
+                tx.aml_status = "ready"
                 tx.score = -1
                 db.session.commit()
 
@@ -2132,7 +2157,7 @@ class Wallet(object):
             self.check_aml_transaction(txid)
             notify_shkeeper(COIN, txid)
 
-        return len(txs)
+        return txs
 
     def transaction_last(self, address):
         txid = self.session.query(DbKey.latest_txid).\
@@ -2361,49 +2386,55 @@ class Wallet(object):
         elif 0 < transaction.locktime < 0xffffffff:
             sequence = SEQUENCE_ENABLE_LOCKTIME
         amount_total_input = 0
+        _logger.warning(f"aml check calculate allow_partial {allow_partial}")
         if input_arr is None:
-            selected_utxos = self.select_inputs(amount_total_output + fee_estimate, transaction.network.dust_amount,
-                                                input_key_id, account_id, network, min_confirms, max_utxos, False)
-            if not selected_utxos:
-                if allow_partial:
-                    selected_utxos = self.select_inputs(
-                        amount_total_output,
-                        transaction.network.dust_amount,
-                        input_key_id, account_id, network,
-                        min_confirms, max_utxos, False
-                    )
+            if allow_partial:
+                _logger.warning("aml allow_partial=True, selecting inputs")
+                selected_utxos = self.select_inputs(
+                    amount_total_output,
+                    transaction.network.dust_amount,
+                    input_key_id, account_id, network,
+                    min_confirms, max_utxos, False
+                )
+                _logger.warning(f"aml selected_utxos {selected_utxos}")
+                total_input = sum(utxo.value for utxo in selected_utxos)
+                _logger.warning(f"aml total_input {total_input}")
+                _logger.warning(f"aml outputs { transaction.outputs}")
 
-                    if not selected_utxos:
-                        raise WalletError("No UTXO available for partial transaction")
-
-                    total_input = sum(utxo.value for utxo in selected_utxos)
-
-                    last_tx_output = transaction.outputs[-1]
-                    last_value = last_tx_output.value
-
-                    max_fee_deductible = max(0, total_input - (amount_total_output - last_value))
-                    adjusted_fee = min(fee_estimate, max_fee_deductible)
-
-                    new_last_value = max(0, last_value - adjusted_fee)
-                    last_tx_output.value = new_last_value
-
-                    amount_total_output = sum(o.value for o in transaction.outputs)
-                    fee_estimate = total_input - amount_total_output
-                    tx_size = transaction.estimate_size(number_of_change_outputs=0)
-                    min_relay_fee = int((tx_size / 1000.0) * transaction.fee_per_kb)
-
-                    if fee_estimate < min_relay_fee:
-                        deficit = min_relay_fee - fee_estimate
-
-                        if last_tx_output.value - deficit <= transaction.network.dust_amount:
-                            raise WalletError("Not enough funds to cover minimal relay fee")
-
-                        last_tx_output.value -= deficit
-                        fee_estimate += deficit
-                        amount_total_output -= deficit
-
+                last_output = transaction.outputs[-1]
+                _logger.warning(f"aml last_output {last_output}")
+                dust_buffer = int(transaction.network.dust_amount)
+                fee_buffer = int(transaction.fee_per_kb * transaction.estimate_size(number_of_change_outputs=0) / 1000)
+                total_buffer = dust_buffer + fee_buffer
+                if last_output.value <= total_buffer:
+                    _logger.warning(f"aml last output {last_output.value} <= total_buffer {total_buffer}, setting to 0")
+                    last_output.value = 0
                 else:
-                    raise WalletError("Not enough unspent transaction outputs found")
+                    _logger.warning(f"aml subtracting total_buffer {total_buffer} from last output {last_output.value}")
+                    last_output.value -= total_buffer
+
+                amount_total_output = sum(o.value for o in transaction.outputs)
+                fee_estimate = total_input - amount_total_output
+
+                tx_size = transaction.estimate_size(number_of_change_outputs=0)
+                min_relay_fee = int((tx_size / 1000.0) * transaction.fee_per_kb)
+
+                if fee_estimate < min_relay_fee:
+                    deficit = min_relay_fee - fee_estimate
+                    if last_output.value - deficit <= 0:
+                        raise WalletError("aml not enough funds to cover minimal relay fee")
+                    _logger.warning(f"aml adjusting last output by deficit {deficit}")
+                    last_output.value -= deficit
+                    fee_estimate += deficit
+                    amount_total_output -= deficit
+
+                _logger.info(f"Selected inputs: {len(selected_utxos)}, total_input={total_input}, fee_estimate={fee_estimate}, amount_total_output={amount_total_output}")
+                
+            else:
+                selected_utxos = self.select_inputs(amount_total_output + fee_estimate, transaction.network.dust_amount,
+                                                    input_key_id, account_id, network, min_confirms, max_utxos, False)
+            if not selected_utxos:
+                raise WalletError("Not enough unspent transaction outputs found")
 
             for utxo in selected_utxos:
                 _logger.info(f"Transaction selected_utxos {selected_utxos}")
@@ -2611,7 +2642,8 @@ class Wallet(object):
         transaction.calc_weight_units()
         transaction.fee_per_kb = int(float(transaction.fee) / float(transaction.vsize) * 1000)
         transaction.txid = transaction.signature_hash()[::-1].hex()
-        _logger.info(f"Transaction txid {transaction.txid }")
+        _logger.warning(f"Transaction txid {transaction.txid }")
+        _logger.warning(f"Transaction size {transaction.size }")
         transaction.send(broadcast)
         return transaction
 

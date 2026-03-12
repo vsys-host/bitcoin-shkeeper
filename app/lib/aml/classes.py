@@ -24,7 +24,7 @@ class AmlWallet:
         logger.info(f"aml AmlWallet.payout_for_tx {tx_id} {account} =====")
 
         external_drain_list = build_payout_list(self.symbol, tx_id)
-        logger.info(f"aml external_drain_list: {external_drain_list}")
+        logger.info(f"aml payout_for_tx external_drain_list: {external_drain_list}")
         if not external_drain_list:
             logger.warning("aml no payouts to process, exiting method")
             return False
@@ -37,13 +37,15 @@ class AmlWallet:
 
         input_key_id = key.id
 
-        outputs = [(address, int(orig_amount)) for address, _, orig_amount in external_drain_list]
-
+        outputs = [(address, amount) for address, amount, _ in external_drain_list]
+        logger.warning(f"aml send outputs {outputs}")
         payout_results = []
 
         try:
+            logger.warning("aml send payouts")
+            logger.warning(f"aml send payouts input_key_id {input_key_id}")
             wallet = CoinWallet().current_wallet()
-            tx = wallet.send(outputs, input_key_id=input_key_id, allow_partial=True)
+            tx = wallet.send(outputs, input_key_id=input_key_id, fee_per_kb=2000, allow_partial=True)
             txid_str = str(tx.txid)
             txid_bytes = bytes.fromhex(txid_str)
 
@@ -112,7 +114,7 @@ class AmlWallet:
         for payout in payout_results:
             txid_log = payout.get("txids")[0] if payout.get("txids") else ""
             logger.info(
-                f"aml {tx_id}: Sent {payout['amount']} {self.symbol} -> {payout['dest']} "
+                f"aml {tx_id}: Sent {payout['amount']} sat {self.symbol} -> {payout['dest']} "
                 f"aml ({txid_log}), status: {payout['status']}"
             )
 
