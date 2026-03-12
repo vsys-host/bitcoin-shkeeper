@@ -2499,9 +2499,27 @@ class Wallet(object):
                                               random_output_order, replace_by_fee, fee_per_kb=fee_per_kb)
         _logger.info(f"Transaction {transaction}")
         transaction.sign(priv_keys)
-        # Calculate exact fees and update change output if necessary
-        if fee is None and transaction.fee_per_kb and transaction.change:
+
+        fee_exact = transaction.calculate_fee()
+
+        _logger.info(f"Transaction fee config: {fee}")
+        _logger.info(f"Transaction fee calculated: {fee_exact}")
+        raw_tx = transaction.raw()
+        real_size = len(raw_tx)
+        _logger.warning(f"Transaction size {transaction.size}")
+        _logger.warning(f"Transaction vsize {transaction.vsize}")
+        _logger.warning(f"Transaction change {transaction.change}")
+        _logger.warning(f"Transaction real size {real_size}")
+        if config.get("CALCULATE_FEE_BY_PHYSICAL_SIZE") == 1:
+            _logger.warning("Recalculating fee using physical tx size")
+            transaction.rawtx = raw_tx
+            transaction.size = real_size
+            transaction.vsize = real_size
             fee_exact = transaction.calculate_fee()
+            _logger.warning(f"Transaction recalculated fee {fee_exact}")
+
+        # Calculate exact fees and update change output if necessary
+        if (fee is None and transaction.fee_per_kb and transaction.change) or (fee_exact is not None and transaction.fee is not None and fee_exact > transaction.fee):
             _logger.info(f"Transaction fee_exact {fee_exact}")
             # Recreate transaction if fee estimation more than 10% off
             if fee_exact != self.network.fee_min and fee_exact != self.network.fee_max and \
