@@ -80,7 +80,7 @@ def check_btc_transaction(self, txid: str):
             continue
 
         tx_db = update_transaction_status(
-            db.session, bytes.fromhex(txid), uid, score, status
+            db.session, txid_bytes, uid, score, status
         )
         if status == "ready" and tx_db:
             address = find_address(tx)
