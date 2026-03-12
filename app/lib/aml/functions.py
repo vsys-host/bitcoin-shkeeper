@@ -70,14 +70,15 @@ def aml_check_transaction(address, txid_bytes):
             "asset": symbol,
             "direction": "deposit",
             "token": token,
-            "accessId": cfg.get('access_id', ''),
+            "accessId": cfg.get("access_id", ""),
             "locale": "en_US",
-            "flow": cfg.get('flow', 'default'),
+            "flow": cfg.get("flow", "default"),
         },
     )
     response.raise_for_status()
     _logger.warning(f"aml check transaction response {response}")
     return response.json()
+
 
 def aml_recheck_transaction(uid, txid_bytes):
     txid = txid_bytes.hex() if isinstance(txid_bytes, bytes) else txid_bytes
@@ -105,10 +106,13 @@ def build_payout_list(
     symbol: str, tx_id_hex: str
 ) -> list[tuple[str, Decimal, Decimal]] | Literal[False]:
 
-    _logger.warning("build payout list started")
+    _logger.info(f"[AML] Building payout list: symbol={symbol}, tx_id={tx_id_hex}")
 
-    tx_id_bytes = tx_id_hex if isinstance(tx_id_hex, bytes) else bytes.fromhex(tx_id_hex)
-    _logger.warning(f"build_payout_list tx_id: {tx_id_bytes.hex()}")
+    tx_id_bytes = (
+        tx_id_hex if isinstance(tx_id_hex, bytes) else bytes.fromhex(tx_id_hex)
+    )
+    tx_id_display = tx_id_bytes.hex() if isinstance(tx_id_bytes, bytes) else tx_id_bytes
+    _logger.debug(f"[AML] Transaction ID converted: {tx_id_display}")
 
     transaction = (
         db.session.query(DbTransaction)
@@ -117,10 +121,15 @@ def build_payout_list(
     )
 
     if not transaction:
-        _logger.warning(f"Transaction {tx_id_hex} not found")
+        _logger.warning(f"[AML] Transaction {tx_id_display} not found in database")
         return False
 
+    _logger.info(
+        f"[AML] Transaction found: id={transaction.id}, tx_type={transaction.tx_type}, aml_status={getattr(transaction, 'aml_status', 'N/A')}, score={getattr(transaction, 'score', 'N/A')}"
+    )
+
     if transaction.tx_type == "default":
+        _logger.info(f"[AML] Transaction is 'default' type, no payout needed")
         return False
 
     payouts_done = (
@@ -130,12 +139,15 @@ def build_payout_list(
     )
 
     addresses_done = {row[0] for row in payouts_done}
+    _logger.info(f"[AML] Found {len(addresses_done)} already processed addresses")
+    if addresses_done:
+        _logger.debug(f"[AML] Already processed addresses: {list(addresses_done)}")
 
     payout_type = get_external_drain_type(symbol)
-
-    _logger.warning(f"aml payout_type {payout_type}")
+    _logger.info(f"[AML] Payout type determined: {payout_type}")
 
     if payout_type not in ("aml", "regular"):
+        _logger.warning(f"[AML] Invalid payout type '{payout_type}', cannot proceed")
         return False
 
     # -----------------------
@@ -143,6 +155,9 @@ def build_payout_list(
     # -----------------------
 
     addresses = [out.address for out in transaction.outputs if out.address]
+    _logger.debug(f"[AML] Transaction has {len(addresses)} output addresses")
+    if addresses:
+        _logger.debug(f"[AML] Transaction output addresses: {addresses}")
 
     key_obj = (
         db.session.query(DbKey)
@@ -152,9 +167,12 @@ def build_payout_list(
     )
 
     amount_total = key_obj.balance if key_obj else Decimal("0")
+    _logger.info(
+        f"[AML] Total amount available for payout: {amount_total} (key_id={key_obj.id if key_obj else 'N/A'}, address={key_obj.address if key_obj else 'N/A'})"
+    )
 
     if amount_total <= 0:
-        _logger.warning("amount_total is zero")
+        _logger.warning(f"[AML] Amount total is zero or negative, no payout possible")
         return False
 
     # -----------------------
@@ -162,11 +180,22 @@ def build_payout_list(
     # -----------------------
 
     if payout_type == "aml":
-        _logger.warning("aml build_payout_list aml type")
-        if transaction.tx_type != "aml" or transaction.aml_status != "ready":
+        _logger.info(f"[AML] Processing AML payout type")
+
+        if transaction.tx_type != "aml":
+            _logger.warning(
+                f"[AML] Transaction tx_type is '{transaction.tx_type}', expected 'aml'"
+            )
+            return False
+
+        if transaction.aml_status != "ready":
+            _logger.warning(
+                f"[AML] Transaction aml_status is '{transaction.aml_status}', expected 'ready'"
+            )
             return False
 
         score = Decimal(str(transaction.score))
+        _logger.info(f"[AML] Risk score: {score}")
 
         risk_cfg = (
             config.get("EXTERNAL_DRAIN_CONFIG", {})
@@ -177,28 +206,39 @@ def build_payout_list(
 
         level_cfg = None
 
-        for _, cfg in risk_cfg.get("risk_scores", {}).items():
-
+        for level_name, cfg in risk_cfg.get("risk_scores", {}).items():
             min_v = Decimal(str(cfg["min_value"]))
             max_v = Decimal(str(cfg["max_value"]))
+            _logger.debug(
+                f"[AML] Checking risk level '{level_name}': min={min_v}, max={max_v}, score={score}"
+            )
 
             if min_v <= score <= max_v:
                 level_cfg = cfg
+                _logger.info(
+                    f"[AML] Risk level matched: '{level_name}' (score {score} in range [{min_v}, {max_v}])"
+                )
                 break
 
         if not level_cfg:
-            _logger.warning("AML level config not found")
+            _logger.error(f"[AML] No risk level configuration found for score {score}")
             return False
 
         raw_addresses = level_cfg.get("addresses", {})
+        _logger.info(
+            f"[AML] Risk level addresses configuration: {len(raw_addresses)} addresses"
+        )
+        _logger.debug(f"[AML] Address ratios: {raw_addresses}")
 
     # -----------------------
     # REGULAR payout
     # -----------------------
 
     else:
-        _logger.warning("aml build_payout_list regular type")
+        _logger.info(f"[AML] Processing regular payout type")
+
         if transaction.tx_type == "regular" and transaction.status == "drained":
+            _logger.info(f"[AML] Transaction already drained, skipping")
             return False
 
         regular_cfg = (
@@ -209,9 +249,13 @@ def build_payout_list(
         )
 
         raw_addresses = regular_cfg.get("addresses", {})
+        _logger.info(
+            f"[AML] Regular payout addresses configuration: {len(raw_addresses)} addresses"
+        )
+        _logger.debug(f"[AML] Address ratios: {raw_addresses}")
 
     if not raw_addresses:
-        _logger.warning("raw_addresses empty")
+        _logger.warning(f"[AML] No destination addresses configured")
         return False
 
     # -----------------------
@@ -219,9 +263,10 @@ def build_payout_list(
     # -----------------------
 
     ratio_sum = sum(Decimal(str(v)) for v in raw_addresses.values())
+    _logger.info(f"[AML] Total ratio sum: {ratio_sum} (must be <= 1.0)")
 
     if ratio_sum > Decimal("1"):
-        _logger.error(f"{payout_type} ratios > 100%")
+        _logger.error(f"[AML] Ratio sum {ratio_sum} exceeds 100%")
         return False
 
     # -----------------------
@@ -234,29 +279,44 @@ def build_payout_list(
     total_assigned = Decimal("0")
 
     for i, (address, ratio) in enumerate(items):
-
         ratio = Decimal(str(ratio))
 
         if address in addresses_done:
+            _logger.info(f"[AML] Skipping already processed address: {address}")
             continue
 
         if i == len(items) - 1:
             amount = amount_total - total_assigned
+            _logger.debug(f"[AML] Last address {address}: assigning remainder {amount}")
         else:
             amount = (amount_total * ratio).quantize(Decimal("0.00000001"))
+            _logger.debug(
+                f"[AML] Address {address}: ratio={ratio}, calculated amount={amount}"
+            )
 
         if amount <= 0:
+            _logger.warning(f"[AML] Calculated amount <= 0 for {address}, skipping")
             continue
 
         payout_list.append((address, amount, ratio))
 
         total_assigned += amount
+        _logger.debug(
+            f"[AML] Added to payout list: {address} -> {amount} (total_assigned={total_assigned})"
+        )
 
     if not payout_list:
-        _logger.warning("payout_list empty")
+        _logger.warning(f"[AML] No valid payouts generated")
         return False
 
-    _logger.warning(f"payout_list built: {payout_list}")
     new_payouts = [p for p in payout_list if p[0] not in addresses_done]
+    _logger.info(
+        f"[AML] Payout list built: {len(new_payouts)} new payouts totaling {total_assigned}"
+    )
+
+    for idx, (addr, amt, ratio) in enumerate(new_payouts):
+        _logger.info(
+            f"[AML] Payout {idx + 1}/{len(new_payouts)}: address={addr}, amount={amt}, ratio={ratio}"
+        )
+
     return new_payouts or False
-    # return payout_list
