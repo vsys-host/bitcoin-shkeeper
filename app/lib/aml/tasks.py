@@ -37,7 +37,6 @@ def find_address(tx: DbTransaction):
 
 
 def process_aml_result(txid: str, key, result: dict):
-
     if not isinstance(result, dict):
         logger.warning(f"AML invalid response for {txid}: {result}")
         return None, None, None
@@ -75,6 +74,7 @@ def check_btc_transaction(self, txid: str):
         from app.lib.aml.tasks import run_payout_for_tx
 
         result = aml_check_transaction(key.address, txid)
+        logger.warning(f"aml check transaction result {result}")
         status, uid, score = process_aml_result(txid, key, result)
         if not status:
             continue

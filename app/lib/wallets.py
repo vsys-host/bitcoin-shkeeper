@@ -2053,14 +2053,13 @@ class Wallet(object):
             _logger.warning(f"aml run payout aml compare {value_sat > min_check_amount}")
             if drain_type == "aml" and value_sat > min_check_amount:
                 _logger.warning(f"aml notifying drain_type {drain_type} aml")
-                check_transaction.delay(COIN, account, txid)
                 tx.tx_type = "aml"
                 tx.aml_status = "pending"
                 tx.score = -1
                 db.session.commit()
+                check_transaction.delay(COIN, account, txid)
             if drain_type == "regular" and value_sat > min_check_amount:
                 _logger.warning(f"aml regular notifying {drain_type}")
-                check_transaction.delay(COIN, account, txid)
                 tx.tx_type = "regular"
                 tx.aml_status = "ready"
                 tx.score = -1
