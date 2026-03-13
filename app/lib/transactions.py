@@ -1100,53 +1100,68 @@ class Transaction(object):
         self.update_totals()
         self.sign_and_update()
 
-    def estimate_size(self, number_of_change_outputs=0, safety_factor=1.1):
-        base_size = 10  # version + locktime
-        witness_size = 0
-
+    def estimate_size(self, number_of_change_outputs=0):
+        # if self.input_total and self.output_total + self.fee == self.input_total:
+        #     add_change_output = False
+        est_size = 12
+        witness_size = 2
         if self.witness_type != 'legacy':
-            base_size += 2  # marker + flag
-
-        # inputs
+            est_size += 2
+        # If no inputs assume 1 input
+        if not self.inputs:
+            est_size += 125
+            witness_size += 72
         for inp in self.inputs:
-            base_size += 36  # prev_txid + vout
-            base_size += 4   # sequence
-
-            if inp.witness_type == 'legacy':
-                script_size = len(varstr(inp.unlocking_script)) if inp.unlocking_script else 107
-                base_size += script_size
+            est_size += 40
+            scr_size = 0
+            if inp.witness_type != 'legacy':
+                est_size += 1
+            if inp.unlocking_script and len(inp.signatures) >= inp.sigs_required:
+                scr_size += len(varstr(inp.unlocking_script))
+                if inp.witness_type == 'p2sh-segwit':
+                    scr_size += sum([1 + len(w) for w in inp.witnesses])
             else:
-                base_size += 1  # empty scriptSig p2wpkh/p2sh-segwit
-                if inp.witnesses:
-                    for w in inp.witnesses:
-                        witness_size += 1 + len(w)
+                if inp.script_type == 'sig_pubkey':
+                    scr_size += 107
+                    if not inp.compressed:
+                        scr_size += 33
+                    if inp.witness_type == 'p2sh-segwit':
+                        scr_size += 24
+                # elif inp.script_type in ['p2sh_multisig', 'p2sh_p2wpkh', 'p2sh_p2wsh']:
+                elif inp.script_type == 'p2sh_multisig':
+                    scr_size += 9 + (len(inp.keys) * 34) + (inp.sigs_required * 72)
+                    if inp.witness_type == 'p2sh-segwit':
+                        scr_size += 17 * inp.sigs_required
+                elif inp.script_type == 'signature':
+                    scr_size += 9 + 72
                 else:
-                    # p2wpkh witness
-                    witness_size += 107
-
-        # outputs
+                    raise TransactionError("Unknown input script type %s cannot estimate transaction size" %
+                                           inp.script_type)
+            est_size += scr_size
+            witness_size += scr_size
         for outp in self.outputs:
-            base_size += 8
-            base_size += len(varstr(outp.lock_script))
-
-        # change outputs
+            est_size += 8
+            if outp.lock_script:
+                est_size += len(varstr(outp.lock_script))
+            else:
+                raise TransactionError("Need locking script for output %d to estimate size" % outp.output_n)
         if number_of_change_outputs:
-            base_size += 34 * number_of_change_outputs
-
-        # base_size + witness
-        self.size = base_size + witness_size
-
-        # vsize segwit
+            is_multisig = True if self.inputs and self.inputs[0].script_type == 'p2sh_multisig' else False
+            co_size = 8
+            if not self.inputs or self.inputs[0].witness_type == 'legacy':
+                co_size += 24 if is_multisig else 26
+            elif self.inputs[0].witness_type == 'p2sh-segwit':
+                co_size += 24
+            else:
+                co_size += 33 if is_multisig else 23
+            est_size += (number_of_change_outputs * co_size)
+        self.size = est_size
+        self.vsize = est_size
         if self.witness_type == 'legacy':
-            self.vsize = self.size
+            return est_size
         else:
-            weight = base_size * 3 + base_size + witness_size
-            self.vsize = math.ceil(weight / 4)
-
-        # safety factor — 10%
-        self.vsize = math.ceil(self.vsize * safety_factor)
-
-        return self.vsize
+            self.vsize = math.ceil((((est_size - witness_size) * 3 + est_size) / 4) - 1.5)
+            return self.vsize
 
     def calc_weight_units(self):
         if not self.size:
