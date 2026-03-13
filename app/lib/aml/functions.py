@@ -11,12 +11,21 @@ _logger = logging.getLogger(__name__)
 
 def get_min_check_amount(symbol: str) -> Decimal:
     _logger.warning("aml get_min_check_amount")
-    cfg = (
-        config.get("EXTERNAL_DRAIN_CONFIG", {}).get("aml_check", {}).get("cryptos", {})
-    )
-    coin_cfg = cfg.get(symbol)
+    external_cfg = config.get("EXTERNAL_DRAIN_CONFIG", {})
+    for section_name, section in external_cfg.items():
+        if not isinstance(section, dict):
+            continue
+        if section.get("state") == "enabled":
+            cryptos = section.get("cryptos", {})
+            coin_cfg = cryptos.get(symbol)
+            if coin_cfg and "min_check_amount" in coin_cfg:
+                return Decimal(coin_cfg["min_check_amount"])
+
+    aml_cryptos = external_cfg.get("aml_check", {}).get("cryptos", {})
+    coin_cfg = aml_cryptos.get(symbol)
     if coin_cfg and "min_check_amount" in coin_cfg:
         return Decimal(coin_cfg["min_check_amount"])
+
     return Decimal("0")
 
 
@@ -105,6 +114,7 @@ def aml_recheck_transaction(uid, txid_bytes):
 def build_payout_list(
     symbol: str, tx_id_hex: str
 ) -> list[tuple[str, Decimal, Decimal]] | Literal[False]:
+    from app.wallet import CoinWallet
 
     _logger.info(f"[AML] Building payout list: symbol={symbol}, tx_id={tx_id_hex}")
 
@@ -155,9 +165,9 @@ def build_payout_list(
     # -----------------------
 
     addresses = [out.address for out in transaction.outputs if out.address]
-    _logger.debug(f"[AML] Transaction has {len(addresses)} output addresses")
+    _logger.warning(f"[AML] Transaction has {len(addresses)} output addresses")
     if addresses:
-        _logger.debug(f"[AML] Transaction output addresses: {addresses}")
+        _logger.warning(f"[AML] Transaction output addresses: {addresses}")
 
     key_obj = (
         db.session.query(DbKey)
@@ -166,9 +176,27 @@ def build_payout_list(
         .first()
     )
 
-    amount_total = key_obj.balance if key_obj else Decimal("0")
+    if key_obj:
+        _logger.warning(f"[AML] amount balance before update: {key_obj.balance}")
+        wallet = CoinWallet().current_wallet()
+        _logger.warning(f"[AML] current wallet: {wallet}")
+        wallet._balance_update(key_id=key_obj.id)
+        key_obj = (
+            db.session.query(DbKey)
+            .filter(DbKey.address.in_(addresses))
+            .order_by(DbKey.id.asc())
+            .first()
+        )
+        amount_total = Decimal(key_obj.balance or 0)
+        _logger.warning(f"[AML] Amount balance after update: {amount_total}")
+    else:
+        amount_total = Decimal("0")
+        _logger.warning("[AML] No key object found for transaction addresses")
+
     _logger.info(
-        f"[AML] Total amount available for payout: {amount_total} (key_id={key_obj.id if key_obj else 'N/A'}, address={key_obj.address if key_obj else 'N/A'})"
+        f"[AML] Total amount available for payout: {amount_total} "
+        f"(key_id={key_obj.id if key_obj else 'N/A'}, "
+        f"address={key_obj.address if key_obj else 'N/A'})"
     )
 
     if amount_total <= 0:
