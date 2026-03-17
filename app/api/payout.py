@@ -69,7 +69,15 @@ def get_task(id):
         db.session.rollback()
         result = task.result
 
-    if isinstance(task.result, Exception):
-        return {'status': task.status, 'result': str(result)}
+    logger.warning(f"response task {task} result {result}")
+    if isinstance(result, list):
+        for r in result:
+            if r.get("status") == "error":
+                return {
+                    "status": "FAILURE",
+                    "result": r.get("error")
+                }
+    if isinstance(result, Exception):
+        return {"status": "FAILURE", "result": str(result)}
     return {'status': task.status, 'result': result}
 

@@ -164,7 +164,7 @@ class Service(object):
                     res = providermethod(*arguments)
 
                     if res is False:
-                        self.errors[sp] = 'Received empty response'
+                        self.errors[sp] = "Received empty response"
                         print(f"--> Empty response from {sp} when calling {method}")
                         continue
                     self.results[sp] = res
@@ -174,20 +174,22 @@ class Service(object):
                         print(f"--> Success from provider {sp}: {res}")
 
                 except Exception as e:
-                    err_msg = getattr(e, 'msg', str(e))
+                    err_msg = getattr(e, "msg", str(e))
                     self.errors[sp] = err_msg
                     print(f"--> Error from provider {sp}: {err_msg}")
 
             if self.results:
-                return list(self.results.values())[0]
+                return next(iter(self.results.values()))
 
             if attempt < retries:
                 print(f"--> No result, retrying {attempt}/{retries} in {retry_delay}s...")
                 time.sleep(retry_delay)
 
         print(f"--> Failed to get result for {method} after {retries} retries")
-        print(f"--> list(self.results.values())[0] {self.results.values()}")
-        return list(self.results.values())[0]
+        if self.errors:
+            error_msg = "; ".join([f"{provider}: {error}" for provider, error in self.errors.items()])
+            raise RuntimeError(f"Provider call failed for '{method}': {error_msg}")
+        raise RuntimeError(f"Provider call failed for '{method}': no providers returned a result")
 
     def getbalance(self, addresslist, addresses_per_request=5):
         if isinstance(addresslist, TYPE_TEXT):
