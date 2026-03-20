@@ -29,6 +29,16 @@ def make_multipayout(symbol, payout_list, fee):
     else:
         return [{"status": "error", 'msg': "Symbol is not in config"}]
 
+@celery.task()
+def withdraw_to_external_wallet_task(symbol, payout_list):
+    if symbol == COIN:
+        w = CoinWallet()
+        logger.warning(f"Starting withdraw_to_external_wallet_task {payout_list}")
+        payout_results = w.withdraw_to_external_wallet_task(payout_list)
+        post_payout_results.delay(payout_results, symbol)
+        return payout_results  
+    else:
+        return [{"status": "error", 'msg': "Symbol is not in config"}]
 
 @celery.task()
 def post_payout_results(data, symbol):
