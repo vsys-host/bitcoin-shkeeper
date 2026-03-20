@@ -408,6 +408,7 @@ def _migrate_btc():
         time.sleep(20)
 
         print("legacy")
+        _check_keys_txt()
         dump_cmd = [
             "bitcoin-cli",
             f"-datadir={TMP_DATADIR}",
@@ -511,6 +512,7 @@ def _migrate_ltc():
     print("legacy")
     print("time_wallet_created")
     print(time_wallet_created())
+    _check_keys_txt()
     dump_cmd = [
         "litecoin-cli",
         f"-datadir={TMP_DATADIR}",
@@ -525,7 +527,6 @@ def _migrate_ltc():
     print(f"Wallet dumped to {DUMP_FILE}")
     wif = get_legacy_main_key()
     print("wif")
-    print(wif)
     for wallet in wallets_list():
         wallet_name = wallet['name']
         print(wallet_name)
@@ -562,6 +563,11 @@ def _migrate_ltc():
         shutil.rmtree(TMP_DATADIR, ignore_errors=True)
         print(f"Removed temporary directory {TMP_DATADIR}")
 
+def _check_keys_txt():
+    file_path = "/app/tmp_coin/keys.txt"
+    if os.path.isfile(file_path):
+        print(f"Removing existing file: {file_path}")
+        os.remove(file_path)
 
 def _migrate_doge():
     from app.lib.keys import  HDKey
@@ -577,6 +583,7 @@ def _migrate_doge():
         print(f"{SRC} not found, skipping copy")
     except PermissionError:
         print(f"Permission denied copying {SRC} → {DST}")
+    _check_keys_txt()
     dogecoind_cmd = [
         "dogecoind",
         f"-datadir={TMP_DATADIR}",
