@@ -316,7 +316,7 @@ class CoinWallet():
 
             key = db.session.query(DbKey).filter(DbKey.address == source).first()
             if not key:
-                raise Exception(f"Source address '{source}' cant find")
+                raise Exception(f"Source address '{source}' not found")
 
             current_wallet = self.current_wallet()
             tx = current_wallet.sweep(dest, input_key_id=key.id)
