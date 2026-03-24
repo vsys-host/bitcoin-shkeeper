@@ -49,13 +49,16 @@ def log_loop():
         latest_height = coin_wallet.get_last_block_number()
         logger.info(f"latest_height {latest_height}")
         logger.info(f"current_height {current_height}")
-        if latest_height > current_height:
-            for height in range(current_height + 1, latest_height + 1):
+        safe_latest_height = max(0, latest_height - config['SAFE_CONFIRMATIONS'])
+        logger.info(f"Processed scan safe_latest_height {safe_latest_height}")
+        logger.info(f"Processed scan current_height {current_height}")
+        if safe_latest_height > current_height:
+            for height in range(current_height + 1, safe_latest_height + 1):
                 block_data = srv.getblock(height, 0).as_dict()
                 block_hash = block_data['block_hash']
-                logger.info(f"Processed bloc latest_height {latest_height}")
-                logger.info(f"block_hash atr height {height}")
-                logger.info(f"Processed block_hash {block_hash}")
+                logger.info(f"Processed block at latest_height {latest_height}")
+                logger.info(f"Processed block at current_height {height}")
+                logger.info(f"block_hash: {block_hash}")
                 wallet.scan(block=block_hash, current_block_height=height)
 
                 wallet.session.query(DbCacheVars).filter_by(
@@ -64,8 +67,8 @@ def log_loop():
                 ).update({"value": str(height)})
                 wallet.session.commit()
 
-            current_height = latest_height
-            check_interval = 30
+            current_height = safe_latest_height
+            check_interval = 10
         else:
             check_interval = default_check_interval
         time.sleep(check_interval)
