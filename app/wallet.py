@@ -301,6 +301,45 @@ class CoinWallet():
         logger.warning(f'payout_results wallets {payout_results}')
         return payout_results
 
+    def withdraw_to_external_wallet_task(self, payout_list):
+        logger.warning(f'withdraw_to_external_wallet_task wallets {payout_list}')
+        payout_results = []
+
+        for payout in payout_list:
+            source = payout.get('source')
+            dest = payout.get('dest')
+
+            if not source or not self.is_valid_address(source):
+                raise Exception(f"Source address '{source}' is not valid in payout {payout}")
+            if not dest or not self.is_valid_address(dest):
+                raise Exception(f"Destination address '{dest}' is not valid in payout {payout}")
+
+            key = db.session.query(DbKey).filter(DbKey.address == source).first()
+            if not key:
+                raise Exception(f"Source address '{source}' not found")
+
+            current_wallet = self.current_wallet()
+            tx = current_wallet.sweep(dest, input_key_id=key.id)
+            try:
+                tx.send()
+                payout_results.append({
+                    "source": source,
+                    "dest": dest,
+                    "status": "success",
+                    "txids": [str(tx)],
+                })
+            except Exception as e:
+                logger.warning(f"Submit failed for {source} -> {dest}: {e}")
+                payout_results.append({
+                    "source": source,
+                    "dest": dest,
+                    "status": "error",
+                    "error": str(e),
+                })
+
+        logger.warning(f'payout_results wallets {payout_results}')
+        return payout_results
+
     def is_valid_address(self, address: str) -> bool:
         if COIN == "BTC":
             return BTCUtils.is_valid_btc_address(address)

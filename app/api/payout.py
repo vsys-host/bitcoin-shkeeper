@@ -5,7 +5,7 @@ from app.db_import import db
 import decimal
 from app.celery_app import celery
 from app.lib.values import decimal_value_to_satoshi, sat_per_kb_to_sat_per_vbyte
-from ..tasks import make_multipayout 
+from ..tasks import make_multipayout, withdraw_to_external_wallet_task
 from . import api
 from ..wallet import CoinWallet
 from ..config import config
@@ -24,14 +24,17 @@ def calc_tx_fee(amount):
 
 
 @api.post('/multipayout')
-def multipayout():        
+def multipayout():
+    if config['PAYOUTS_DISABLED'] == 1:
+        logger.warning("Payout was disabled")
+        raise Exception("Payout was disabled")
     try:
         payout_list = request.get_json(force=True)
     except Exception as e:
         raise Exception(f"Bad JSON in payout list: {e}")
 
     if not payout_list:
-            raise Exception(f"Payout list is empty!")
+        raise Exception(f"Payout list is empty!")
 
     for transfer in payout_list:
         try:
@@ -49,9 +52,30 @@ def multipayout():
         raise Exception(f"{g.symbol} is not defined in config, cannot make payout")
     pass
 
+
+@api.post('/withdraw_to_external_wallet')
+def withdraw_to_external_wallet():
+    # [{'dest': '0x00001000000xxxxxx', 'source': '0x00002000000yyyyyyy'}]
+    try:
+        payout_list = request.get_json(force=True)
+    except Exception as e:
+        raise Exception(f"Bad JSON in payout list: {e}")
+
+    if not payout_list:
+            raise Exception(f"Payout list is empty!")
+
+    if g.symbol == COIN:
+        task = (withdraw_to_external_wallet_task.s(g.symbol, payout_list)).apply_async()
+        return {'task_id': task.id}
+    else:
+        raise Exception(f"{g.symbol} is not defined in config, cannot make payout")
+
 @api.post('/payout/<to>/<decimal:amount>/<fee>')
 def payout(to, amount, fee):
     logger.warning(f'starting payout {amount}, to {to}')
+    if config['PAYOUTS_DISABLED'] == 1:
+        logger.warning("Payout was disabled")
+        raise Exception("Payout was disabled")
     payout_list = [{ "dest": to, "amount": amount }]
     if g.symbol == COIN:
         payout_list = [{ "dest": to, "amount": amount }]
