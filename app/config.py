@@ -33,6 +33,7 @@ config = {
     'EVENTS_MAX_THREADS_NUMBER': int(os.environ.get('EVENTS_MAX_THREADS_NUMBER', 8)),
     'DEBUG': os.environ.get('DEBUG', False),
     'PAYOUTS_DISABLED': int(os.environ.get('PAYOUTS_DISABLED', 0)),
+    'SAFE_CONFIRMATIONS': int(os.environ.get('SAFE_CONFIRMATIONS', 1)),
     'CALCULATE_FEE_BY_PHYSICAL_SIZE': int(os.environ.get('CALCULATE_FEE_BY_PHYSICAL_SIZE', 0)),
     'SQLALCHEMY_DATABASE_URI': os.environ.get(
     'SQLALCHEMY_DATABASE_URI',
