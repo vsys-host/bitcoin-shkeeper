@@ -399,7 +399,7 @@ def _migrate_btc():
     ]
     time.sleep(20)
     bitcoind_proc = subprocess.Popen(
-        bitcoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        bitcoind_cmd,
     )
     time.sleep(20)
     from app import create_app
@@ -456,7 +456,7 @@ def _migrate_btc():
         bitcoind_proc.wait()
         bitcoind_cmd.append(f"-wallet={WALLET}")
         bitcoind_proc = subprocess.Popen(
-            bitcoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            bitcoind_cmd,
         )
         time.sleep(20)
 
@@ -553,7 +553,7 @@ def _migrate_ltc():
     print("migrate_addreses")
     time.sleep(20)
     litecoind_proc = subprocess.Popen(
-        litecoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        litecoind_cmd,
     )
 
     time.sleep(20)
@@ -694,7 +694,7 @@ def _migrate_doge():
     logger.info("migrate_addresses")
     time.sleep(20)
     dogecoind_proc = subprocess.Popen(
-        dogecoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        dogecoind_cmd,
     )
 
     time.sleep(20)
