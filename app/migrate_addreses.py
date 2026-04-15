@@ -15,10 +15,12 @@ import subprocess
 import os
 import secrets, string
 
+
 def gen_password(length=32):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+[]{};:,.<>/?"
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
-    
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
 TMP_DATADIR = "/app/tmp_coin"
 WALLET = "wallet.dat"
 RPC_USER = gen_password(32)
@@ -34,20 +36,25 @@ else:
 DUMP_FILE = "keys.txt"
 rpc_bind = "0.0.0.0"
 
-def handle_event(transaction):        
-    logger.info(f'new transaction: {transaction!r}')
+
+def handle_event(transaction):
+    logger.info(f"new transaction: {transaction!r}")
+
 
 def gethost():
     return f"{rpc_bind}:{RPC_PORT}"
     # return "127.0.0.1:18332"
+
 
 def get_rpc_credentials():
     username = RPC_USER
     password = RPC_PASSWORD
     return (username, password)
 
+
 def build_rpc_request(method, *params):
     return {"jsonrpc": "1.0", "id": "shkeeper", "method": method, "params": params}
+
 
 def get_legacy_main_key(tmp_datadir=TMP_DATADIR, dump_file_name="keys.txt"):
     dump_file = Path(tmp_datadir) / dump_file_name
@@ -68,6 +75,7 @@ def get_legacy_main_key(tmp_datadir=TMP_DATADIR, dump_file_name="keys.txt"):
                     privkeys[addr] = priv
     return main_key
 
+
 def is_descriptor():
     try:
         response = requests.post(
@@ -76,10 +84,11 @@ def is_descriptor():
             json=build_rpc_request("getwalletinfo"),
         ).json()
         get_wallet_info = response["result"]
-        descriptor = get_wallet_info['descriptors']
+        descriptor = get_wallet_info["descriptors"]
     except requests.exceptions.RequestException:
         descriptor = False
     return descriptor
+
 
 def list_legacy_address():
     try:
@@ -93,6 +102,7 @@ def list_legacy_address():
         addresses = False
     return addresses
 
+
 def list_unique_wallet_addresses(batch_size=1000):
     addresses = set()
     offset = 0
@@ -100,12 +110,7 @@ def list_unique_wallet_addresses(batch_size=1000):
         response = requests.post(
             "http://" + gethost(),
             auth=get_rpc_credentials(),
-            json=build_rpc_request(
-                "listtransactions",
-                "*",
-                batch_size,
-                offset
-            ),
+            json=build_rpc_request("listtransactions", "*", batch_size, offset),
             timeout=30,
         ).json()
         batch = response.get("result", [])
@@ -120,13 +125,16 @@ def list_unique_wallet_addresses(batch_size=1000):
         offset += batch_size
     return sorted(addresses)
 
+
 def time_wallet_created():
     configured_time = config.get("TIME_WALLET_CREATED")
     if configured_time:
         try:
             return int(configured_time)
         except (TypeError, ValueError):
-            logger.warning("Invalid TIME_WALLET_CREATED value in config: %r", configured_time)
+            logger.warning(
+                "Invalid TIME_WALLET_CREATED value in config: %r", configured_time
+            )
     try:
         response = requests.post(
             "http://" + gethost(),
@@ -137,6 +145,7 @@ def time_wallet_created():
     except requests.exceptions.RequestException:
         list_transaction = False
     return list_transaction.get("birthtime") or list_transaction.get("keypoololdest")
+
 
 def get_descriptors():
     try:
@@ -150,44 +159,48 @@ def get_descriptors():
         get_descriptors = False
     return get_descriptors
 
+
 def save_migrated_addresses(session, addresses, network):
     for addr in addresses:
-        exists = session.query(DbTemporaryMigrationWallet.id)\
-            .filter_by(address=addr, network=network)\
+        exists = (
+            session.query(DbTemporaryMigrationWallet.id)
+            .filter_by(address=addr, network=network)
             .first()
+        )
         if exists:
             continue
-        session.add(DbTemporaryMigrationWallet(
-            address=addr,
-            network=network
-        ))
+        session.add(DbTemporaryMigrationWallet(address=addr, network=network))
+
 
 def get_main_key(descriptors):
-    last_desc = descriptors['descriptors'][-1]['desc']
-    wif = last_desc.split('(')[1].split(')')[0].replace('/*','')
-    master_key = wif.split('/')[0]
+    last_desc = descriptors["descriptors"][-1]["desc"]
+    wif = last_desc.split("(")[1].split(")")[0].replace("/*", "")
+    master_key = wif.split("/")[0]
     return master_key
 
+
 def get_quantity_generated_adresses(descriptors):
-    descriptors = descriptors['descriptors']
-    quantity_generated_adresses = len(['descriptors'])
+    descriptors = descriptors["descriptors"]
+    quantity_generated_adresses = len(["descriptors"])
     return quantity_generated_adresses + 10
+
 
 def get_legacy_quantity_generated_adresses(list_addreses):
     quantity_generated_adresses = len(list_addreses)
     return quantity_generated_adresses + 10
 
+
 def find_closest_block_by_timestamp(target_timestamp, max_diff_seconds=86400):
-    srv = Service(config['COIN_NETWORK'])
+    srv = Service(config["COIN_NETWORK"])
     wallet = CoinWallet()
     start_height = 0
     end_height = wallet.get_last_block_number()
     closest_block = None
-    closest_diff = float('inf')
+    closest_diff = float("inf")
     while start_height <= end_height:
         mid = (start_height + end_height) // 2
         block = srv.getblock(mid, 0).as_dict()
-        ts = block['timestamp']
+        ts = block["timestamp"]
         diff = abs(ts - target_timestamp)
         if diff < closest_diff:
             closest_diff = diff
@@ -208,7 +221,10 @@ def find_closest_block_by_timestamp(target_timestamp, max_diff_seconds=86400):
         )
     return closest_block
 
-def generate_addresses(coin_wallet, current_index_path, quantity_generated_addresses, witness_type='segwit'):
+
+def generate_addresses(
+    coin_wallet, current_index_path, quantity_generated_addresses, witness_type="segwit"
+):
     for address_index in range(quantity_generated_addresses):
         path = f"m/84'/{current_index_path}'/0'/0/{address_index}"
         change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
@@ -217,6 +233,7 @@ def generate_addresses(coin_wallet, current_index_path, quantity_generated_addre
         addr = keys[0].address
         yield path, addr
 
+
 def list_unique_wallet_addresses(batch_size=1000):
     addresses = set()
     offset = 0
@@ -224,12 +241,7 @@ def list_unique_wallet_addresses(batch_size=1000):
         response = requests.post(
             "http://" + gethost(),
             auth=get_rpc_credentials(),
-            json=build_rpc_request(
-                "listtransactions",
-                "*",
-                batch_size,
-                offset
-            ),
+            json=build_rpc_request("listtransactions", "*", batch_size, offset),
             timeout=30,
         ).json()
         batch = response.get("result", [])
@@ -244,27 +256,53 @@ def list_unique_wallet_addresses(batch_size=1000):
         offset += batch_size
     return sorted(addresses)
 
+
 def mark_wallet_migrated(session, coin_wallet, height):
     network = coin_wallet.network.name
     value = str(height - 20)
-    record = session.query(DbCacheVars).filter_by(varname="last_scanned_block", network_name=network).first()
+    record = (
+        session.query(DbCacheVars)
+        .filter_by(varname="last_scanned_block", network_name=network)
+        .first()
+    )
     if record:
         record.value = value
     else:
-        session.add(DbCacheVars(varname="last_scanned_block", network_name=network, value=value, type="int", expires=None))
+        session.add(
+            DbCacheVars(
+                varname="last_scanned_block",
+                network_name=network,
+                value=value,
+                type="int",
+                expires=None,
+            )
+        )
     if COIN in ("DOGE", "LTC"):
-        migration_block_started = session.query(DbCacheVars).filter_by(varname="migration_from_block_started", network_name=network).first()
+        migration_block_started = (
+            session.query(DbCacheVars)
+            .filter_by(varname="migration_from_block_started", network_name=network)
+            .first()
+        )
         last_block = CoinWallet().get_last_block_number()
         if migration_block_started:
             migration_block_started.value = last_block
         else:
-            session.add(DbCacheVars(varname="migration_from_block_started", network_name=network, value=last_block, type="int", expires=None))    
+            session.add(
+                DbCacheVars(
+                    varname="migration_from_block_started",
+                    network_name=network,
+                    value=last_block,
+                    type="int",
+                    expires=None,
+                )
+            )
     db_wallet = session.query(DbWallet).first()
     if db_wallet:
         db_wallet.migrated = True
         print(f"migrated updated")
         session.add(db_wallet)
     session.commit()
+
 
 def list_all_wallet_addresses():
     addresses = set()
@@ -299,12 +337,13 @@ def list_all_wallet_addresses():
         pass
     return list(addresses)
 
+
 def get_privkey(address):
     try:
         response = requests.post(
             "http://" + gethost(),
             auth=get_rpc_credentials(),
-            json=build_rpc_request("dumpprivkey", address)
+            json=build_rpc_request("dumpprivkey", address),
         ).json()
         if response.get("error"):
             return {"error": response["error"]}
@@ -312,18 +351,20 @@ def get_privkey(address):
     except Exception as e:
         return {"error": str(e)}
 
+
 def migrate_addreses():
-    if COIN == 'BTC':
+    if COIN == "BTC":
         _migrate_btc()
-    elif COIN == 'LTC':
+    elif COIN == "LTC":
         _migrate_ltc()
-    elif COIN == 'DOGE':
+    elif COIN == "DOGE":
         _migrate_doge()
     else:
         raise ValueError(f"Unsupported coin {COIN}")
 
+
 def _migrate_btc():
-    SRC = config['WALLET_DAT_PATH']
+    SRC = config["WALLET_DAT_PATH"]
     os.makedirs(TMP_DATADIR, exist_ok=True)
     DST = os.path.join(TMP_DATADIR, "wallet.dat")
     try:
@@ -347,7 +388,7 @@ def _migrate_btc():
         "-connect=0",
         "-disablewallet=0",
         "-deprecatedrpc=addresses",
-        "-printtoconsole",
+        # "-printtoconsole",
         "-daemon=0",
         "-persistmempool=0",
         # "-rebroadcast=0",
@@ -357,13 +398,17 @@ def _migrate_btc():
         "-loglevelalways=1",
     ]
     time.sleep(20)
-    bitcoind_proc = subprocess.Popen(bitcoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    bitcoind_proc = subprocess.Popen(
+        bitcoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     time.sleep(20)
     from app import create_app
+
     app = create_app()
     app.app_context().push()
     coin_wallet = CoinWallet()
     from app.lib.wallets import Wallet, DbWallet, wallets_list, wallet_delete, db
+
     try:
         target_timestamp = time_wallet_created()
         if not target_timestamp:
@@ -386,25 +431,33 @@ def _migrate_btc():
         descriptor = get_descriptors()
         wif = get_main_key(descriptor)
         for wallet in wallets_list():
-            wallet_name = wallet['name']
+            wallet_name = wallet["name"]
             print(wallet_name)
             wallet_delete(wallet_name, force=True)
-        coin_wallet = Wallet.create('Wallet7', wif, witness_type='segwit', purpose='84')
+        coin_wallet = Wallet.create("Wallet7", wif, witness_type="segwit", purpose="84")
         legacy_address = list_legacy_address()
-        quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
+        quantity_generated_adresses = get_legacy_quantity_generated_adresses(
+            legacy_address
+        )
 
         db_wallet = db.session.query(DbWallet).first()
         db_wallet.generated_address_count = quantity_generated_adresses
         db.session.commit()
 
         current_index_path = coin_wallet.current_index_path()
-        for path, addr in generate_addresses(coin_wallet, current_index_path, quantity_generated_addresses=quantity_generated_adresses):
+        for path, addr in generate_addresses(
+            coin_wallet,
+            current_index_path,
+            quantity_generated_addresses=quantity_generated_adresses,
+        ):
             print(f"Path: {path} → Address: {addr}")
     else:
         bitcoind_proc.terminate()
         bitcoind_proc.wait()
         bitcoind_cmd.append(f"-wallet={WALLET}")
-        bitcoind_proc = subprocess.Popen(bitcoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        bitcoind_proc = subprocess.Popen(
+            bitcoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         time.sleep(20)
 
         print("legacy")
@@ -417,27 +470,41 @@ def _migrate_btc():
             f"-rpcport={RPC_PORT}",
             f"-rpcwallet={WALLET}",
             "dumpwallet",
-            os.path.join(TMP_DATADIR, DUMP_FILE)
+            os.path.join(TMP_DATADIR, DUMP_FILE),
         ]
         subprocess.run(dump_cmd, check=True)
         print(f"Wallet dumped to {DUMP_FILE}")
         wif = get_legacy_main_key()
         for wallet in wallets_list():
-            wallet_name = wallet['name']
+            wallet_name = wallet["name"]
             print(wallet_name)
             wallet_delete(wallet_name, force=True)
-        coin_wallet = Wallet.create('Wallet7', wif, witness_type='segwit', purpose='0')
+        coin_wallet = Wallet.create("Wallet7", wif, witness_type="segwit", purpose="0")
         print(list_legacy_address())
         legacy_address = list_legacy_address()
-        legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
+        legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(
+            legacy_address
+        )
         db_wallet = db.session.query(DbWallet).first()
         db_wallet.generated_address_count = legacy_quantity_generated_adresses
         db.session.commit()
         for address_index in range(legacy_quantity_generated_adresses):
             path = f"m/0'/0/{address_index}"
             path_old = f"m/0'/1/{address_index}"
-            coin_wallet.keys_for_path(path=path_old, witness_type='segwit', account_id=0, network=config['COIN_NETWORK'], number_of_keys=2)
-            keys = coin_wallet.keys_for_path(path=path, account_id=0, network=config['COIN_NETWORK'], witness_type='segwit', number_of_keys=2)
+            coin_wallet.keys_for_path(
+                path=path_old,
+                witness_type="segwit",
+                account_id=0,
+                network=config["COIN_NETWORK"],
+                number_of_keys=2,
+            )
+            keys = coin_wallet.keys_for_path(
+                path=path,
+                account_id=0,
+                network=config["COIN_NETWORK"],
+                witness_type="segwit",
+                number_of_keys=2,
+            )
             addr = keys[0].address
             print(f"Path: {path} → Address: {addr}")
     session = db.session
@@ -450,8 +517,9 @@ def _migrate_btc():
         shutil.rmtree(TMP_DATADIR, ignore_errors=True)
         print(f"Removed temporary directory {TMP_DATADIR}")
 
+
 def _migrate_ltc():
-    SRC = config['WALLET_DAT_PATH']
+    SRC = config["WALLET_DAT_PATH"]
     os.makedirs(TMP_DATADIR, exist_ok=True)
     DST = os.path.join(TMP_DATADIR, "wallet.dat")
     try:
@@ -477,21 +545,25 @@ def _migrate_ltc():
         "-connect=0",
         "-disablewallet=0",
         "-deprecatedrpc=addresses",
-        "-printtoconsole",
+        # "-printtoconsole",
         "-walletbroadcast=0",
-        "-daemon=0"
+        "-daemon=0",
     ]
-    logger.info('migrate_addreses')
+    logger.info("migrate_addreses")
     print("migrate_addreses")
     time.sleep(20)
-    litecoind_proc = subprocess.Popen(litecoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    litecoind_proc = subprocess.Popen(
+        litecoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
 
     time.sleep(20)
     print("litecoind_proc")
     from app import create_app
+
     app = create_app()
     app.app_context().push()
     from app.lib.wallets import Wallet, DbWallet, wallets_list, wallet_delete, db
+
     try:
         target_timestamp = time_wallet_created()
         if not target_timestamp:
@@ -521,38 +593,50 @@ def _migrate_ltc():
         f"-rpcport={RPC_PORT}",
         f"-rpcwallet={WALLET}",
         "dumpwallet",
-        os.path.join(TMP_DATADIR, DUMP_FILE)
+        os.path.join(TMP_DATADIR, DUMP_FILE),
     ]
     subprocess.run(dump_cmd, check=True)
     print(f"Wallet dumped to {DUMP_FILE}")
     wif = get_legacy_main_key()
     print("wif")
     for wallet in wallets_list():
-        wallet_name = wallet['name']
+        wallet_name = wallet["name"]
         print(wallet_name)
         wallet_delete(wallet_name, force=True)
-    coin_wallet = Wallet.create('Wallet7', wif, witness_type='segwit', purpose='0')
+    coin_wallet = Wallet.create("Wallet7", wif, witness_type="segwit", purpose="0")
     print(list_legacy_address())
 
     legacy_address = list_legacy_address()
-    legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
+    legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(
+        legacy_address
+    )
     db_wallet = db.session.query(DbWallet).first()
     db_wallet.generated_address_count = legacy_quantity_generated_adresses
     db.session.commit()
     for address_index in range(legacy_quantity_generated_adresses):
         path = f"m/0'/0/{address_index}"
         path_old = f"m/0'/1/{address_index}"
-        coin_wallet.keys_for_path(path=path_old, witness_type='segwit', account_id=0, network=config['COIN_NETWORK'], number_of_keys=2)
-        keys = coin_wallet.keys_for_path(path=path, account_id=0, network=config['COIN_NETWORK'], witness_type='segwit', number_of_keys=2) 
+        coin_wallet.keys_for_path(
+            path=path_old,
+            witness_type="segwit",
+            account_id=0,
+            network=config["COIN_NETWORK"],
+            number_of_keys=2,
+        )
+        keys = coin_wallet.keys_for_path(
+            path=path,
+            account_id=0,
+            network=config["COIN_NETWORK"],
+            witness_type="segwit",
+            number_of_keys=2,
+        )
         addr = keys[0].address
         print(f"Path: {path} → Address: {addr}")
-    
+
     session = db.session
     addresses = list_unique_wallet_addresses()
     save_migrated_addresses(
-        session=session,
-        addresses=addresses,
-        network=config['COIN_NETWORK']
+        session=session, addresses=addresses, network=config["COIN_NETWORK"]
     )
     mark_wallet_migrated(session, coin_wallet, closest["height"])
     if litecoind_proc:
@@ -563,16 +647,19 @@ def _migrate_ltc():
         shutil.rmtree(TMP_DATADIR, ignore_errors=True)
         print(f"Removed temporary directory {TMP_DATADIR}")
 
+
 def _check_keys_txt():
     file_path = "/app/tmp_coin/keys.txt"
     if os.path.isfile(file_path):
         print(f"Removing existing file: {file_path}")
         os.remove(file_path)
 
+
 def _migrate_doge():
-    from app.lib.keys import  HDKey
+    from app.lib.keys import HDKey
     from app.lib.wallets import WalletKey
-    SRC = config['WALLET_DAT_PATH']
+
+    SRC = config["WALLET_DAT_PATH"]
     os.makedirs(TMP_DATADIR, exist_ok=True)
     WALLET = "shkeeper"
     DST = os.path.join(TMP_DATADIR, WALLET)
@@ -600,20 +687,24 @@ def _migrate_doge():
         "-connect=0",
         "-disablewallet=0",
         "-deprecatedrpc=addresses",
-        "-printtoconsole",
+        # "-printtoconsole",
         "-walletbroadcast=0",
-        "-daemon=0"
+        "-daemon=0",
     ]
-    logger.info('migrate_addresses')
+    logger.info("migrate_addresses")
     time.sleep(20)
-    dogecoind_proc = subprocess.Popen(dogecoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    dogecoind_proc = subprocess.Popen(
+        dogecoind_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
 
     time.sleep(20)
     print("dogecoind_proc")
     from app import create_app
+
     app = create_app()
     app.app_context().push()
     from app.lib.wallets import Wallet, DbWallet, wallets_list, wallet_delete, db
+
     try:
         target_timestamp = time_wallet_created()
         if not target_timestamp:
@@ -633,47 +724,55 @@ def _migrate_doge():
 
     print("legacy")
     for wallet in wallets_list():
-        wallet_name = wallet['name']
+        wallet_name = wallet["name"]
         print(wallet_name)
         wallet_delete(wallet_name, force=True)
 
     doge_wallet = Wallet.create(
-        'Wallet7',
-        network=config['COIN_NETWORK'],
-        witness_type='legacy',
+        "Wallet7",
+        network=config["COIN_NETWORK"],
+        witness_type="legacy",
         scheme="single",
-        encoding="base58"
+        encoding="base58",
     )
     legacy_address = list_all_wallet_addresses()
     print(legacy_address)
-    legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(legacy_address)
+    legacy_quantity_generated_adresses = get_legacy_quantity_generated_adresses(
+        legacy_address
+    )
     db_wallet = db.session.query(DbWallet).first()
     db_wallet.generated_address_count = legacy_quantity_generated_adresses
     db.session.commit()
-    legacy_address = [{'address': addr} for addr in legacy_address]
+    legacy_address = [{"address": addr} for addr in legacy_address]
     for address_index, addr_dict in enumerate(legacy_address):
-        addr = addr_dict['address']
+        addr = addr_dict["address"]
         privkey_data = get_privkey(addr)
 
-        if 'privkey' in privkey_data:
-            new_key = HDKey(import_key=privkey_data['privkey'], network=config['COIN_NETWORK'], witness_type='legacy')
+        if "privkey" in privkey_data:
+            new_key = HDKey(
+                import_key=privkey_data["privkey"],
+                network=config["COIN_NETWORK"],
+                witness_type="legacy",
+            )
             WalletKey.from_key(
                 name=f"{db_wallet.name}_{address_index + 1}",
                 wallet_id=db_wallet.id,
                 session=db.session,
-                key=new_key
+                key=new_key,
             )
             db.session.commit()
-            logger.info("  → SUCCESS: Imported private key for address %s (index %d)", addr, address_index)
+            logger.info(
+                "  → SUCCESS: Imported private key for address %s (index %d)",
+                addr,
+                address_index,
+            )
         else:
-            logger.error("  → ERROR: %s", privkey_data.get('error'))
+            logger.error("  → ERROR: %s", privkey_data.get("error"))
 
     addresses = list_unique_wallet_addresses()
     session = db.session
     save_migrated_addresses(
-        session=session,
-        addresses=addresses,
-        network=config['COIN_NETWORK']
+        session=session, addresses=addresses, network=config["COIN_NETWORK"]
     )
     mark_wallet_migrated(session, doge_wallet, closest["height"])
     if dogecoind_proc:
