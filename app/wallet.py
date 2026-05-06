@@ -36,29 +36,14 @@ class CoinWallet():
             if out.key_id is None:
               continue
             addr = out.address
-            spent = getattr(out, 'spent', False)
-            if not spent:
-                # balance_satoshi += out.value
-                # val = Value.from_satoshi(balance_satoshi).value
-                val = Value.from_satoshi(out.value).value
-                details.append({
-                    'address': addr,
-                    'amount': val,
-                    'category': 'receive'
-                })
-        # for inp in tx.inputs:
-        #     # prev_txid = inp.prev_txid
-        #     # output_n = inp.output_n
-        #     # prev_tx = self.get_tx_by_txid(prev_txid)
-        #     # if prev_tx:
-        #     addr = inp.address
-        #     balance_satoshi -= inp.value
-        #     val = Value.from_satoshi(balance_satoshi).value
-        #     details.append({
-        #         'address': addr,
-        #         'amount': val,
-        #         'category': 'send'
-        #     })
+            # balance_satoshi += out.value
+            # val = Value.from_satoshi(balance_satoshi).value
+            val = Value.from_satoshi(out.value).value
+            details.append({
+                'address': addr,
+                'amount': val,
+                'category': 'receive'
+            })
 
         return {
             'txid': txid_hex,
