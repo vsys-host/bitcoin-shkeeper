@@ -16,12 +16,14 @@ Requires a regtest bitcoind + the app stack (MariaDB/redis). Provide:
     SHKEEPER_TEST_REGTEST=1
     FULLNODE_URL=http://user:pass@127.0.0.1:18443
     WALLET=BTC  COIN_NETWORK=regtest
-and the usual SQLALCHEMY_DATABASE_URI/REDIS_HOST. In CI these come from service
-containers (see .github/workflows/ci-tests.yml). When the env/deps are absent the
-whole module SKIPS — it never silently passes.
+and the usual SQLALCHEMY_DATABASE_URI/REDIS_HOST. When bitcoinlib/the app/the
+node are absent (e.g. a bare runner) the whole module SKIPS — it never errors and
+never silently passes.
 
-NOTE: not executed in the dev sandbox used to author the fix (no bitcoinlib /
-node / flask there). Authored to run in CI and locally against a regtest node.
+This needs the runtime image (vendored bitcoinlib) + a regtest node, so it is NOT
+wired into a bare-runner CI job here; run it inside the bitcoin-shkeeper image with
+a regtest bitcoind. NOTE: not executed in the dev sandbox used to author the fix
+(no bitcoinlib / node / flask there).
 """
 from __future__ import annotations
 
@@ -34,6 +36,7 @@ REGTEST = os.environ.get("SHKEEPER_TEST_REGTEST") == "1"
 try:  # the app + bitcoinlib only import with the full stack present
     if not REGTEST:
         raise ImportError("regtest env not enabled")
+    import bitcoinlib  # noqa: F401  vendored in the runtime image, absent on a bare runner
     from app.wallet import CoinWallet  # noqa: E402
     from app.lib.values import decimal_value_to_satoshi  # noqa: E402
     _IMPORT_ERR = None
