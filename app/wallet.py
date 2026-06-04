@@ -45,9 +45,18 @@ class CoinWallet():
                 'category': 'receive'
             })
 
+        confs = getattr(tx, 'confirmations', 0) or 0
+        bh = getattr(tx, 'block_height', None)
+        if bh:
+            try:
+                live = self.get_last_block_number() - bh + 1
+                if live > confs:
+                    confs = live
+            except Exception:
+                pass
         return {
             'txid': txid_hex,
-            'confirmations': getattr(tx, 'confirmations', 0),
+            'confirmations': confs,
             'details': details
         }
 
@@ -283,6 +292,51 @@ class CoinWallet():
                     "error": str(e),
                 })
         logger.warning(f'payout_results wallets {payout_results}')
+        return payout_results
+
+    def make_sweep_payout(self, dest, amount=None):
+        """Pay out `amount` (coin units) to `dest`, fee subtracted from it.
+
+        `amount` is the intended payout (do_payout passes the full balance for
+        the DISABLE reserve policy, or balance-minus-reserve for AMOUNT/PERCENT).
+        All UTXOs are spent; the destination receives `amount - fee` and any
+        remaining `balance - amount` (the reserve) is kept as a wallet output.
+        If `amount` is None or >= balance, this is a plain full-balance sweep.
+        """
+        logger.warning(f'make_sweep_payout dest {dest} amount {amount}')
+        if not self.is_valid_address(dest):
+            raise Exception(f"Address {dest} is not valid address")
+        payout_results = []
+        wallet = self.current_wallet()
+        balance = sum(u['value'] for u in wallet.utxos())
+        amount_sat = balance if amount is None else decimal_value_to_satoshi(amount)
+        reserve_sat = balance - amount_sat
+        if reserve_sat > wallet.network.dust_amount:
+            # Partial payout: keep the reserve in the wallet, send the rest to dest.
+            reserve_addr = wallet.get_key().address
+            tx = wallet.sweep([(reserve_addr, int(reserve_sat)), (dest, 0)])
+        else:
+            # Full payout: sweep everything to dest.
+            tx = wallet.sweep(dest)
+        sent_sat = next((o.value for o in tx.outputs if o.address == dest), 0)
+        amount_coin = float(Value.from_satoshi(sent_sat).value)
+        try:
+            tx.send()
+            payout_results.append({
+                "dest": dest,
+                "amount": amount_coin,
+                "status": "success",
+                "txids": [str(tx)],
+            })
+        except Exception as e:
+            logger.warning(f"Sweep submit failed: {e}")
+            payout_results.append({
+                "dest": dest,
+                "amount": amount_coin,
+                "status": "error",
+                "error": str(e),
+            })
+        logger.warning(f'make_sweep_payout results {payout_results}')
         return payout_results
 
     def withdraw_to_external_wallet_task(self, payout_list):

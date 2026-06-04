@@ -5,7 +5,7 @@ from app.db_import import db
 import decimal
 from app.celery_app import celery
 from app.lib.values import decimal_value_to_satoshi, sat_per_kb_to_sat_per_vbyte
-from ..tasks import make_multipayout, withdraw_to_external_wallet_task
+from ..tasks import make_multipayout, withdraw_to_external_wallet_task, sweep_payout_task
 from . import api
 from ..wallet import CoinWallet
 from ..config import config
@@ -80,6 +80,18 @@ def payout(to, amount, fee):
     if g.symbol == COIN:
         payout_list = [{ "dest": to, "amount": amount }]
         task = (make_multipayout.s(g.symbol, payout_list, decimal.Decimal(fee) if fee else decimal.Decimal(config['NETWORK_FEE']))).apply_async()
+        return {'task_id': task.id}
+    else:
+        raise Exception(f"{g.symbol} is not defined in config, cannot make payout")
+
+@api.post('/sweep-payout/<to>')
+@api.post('/sweep-payout/<to>/<amount>')
+def sweep_payout(to, amount=None):
+    if config['PAYOUTS_DISABLED'] == 1:
+        logger.warning("Payout was disabled")
+        raise Exception("Payout was disabled")
+    if g.symbol == COIN:
+        task = (sweep_payout_task.s(g.symbol, to, amount)).apply_async()
         return {'task_id': task.id}
     else:
         raise Exception(f"{g.symbol} is not defined in config, cannot make payout")
