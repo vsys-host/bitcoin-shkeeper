@@ -30,11 +30,11 @@ def make_multipayout(symbol, payout_list, fee):
         return [{"status": "error", 'msg': "Symbol is not in config"}]
 
 @celery.task()
-def sweep_payout_task(symbol, dest, amount=None):
+def sweep_payout_task(symbol, dest):
     if symbol == COIN:
         w = CoinWallet()
         logger.warning(f"Starting sweep payout to {dest}")
-        payout_results = w.make_sweep_payout(dest, amount)
+        payout_results = w.make_sweep_payout(dest)
         post_payout_results.delay(payout_results, symbol)
         return payout_results
     else:

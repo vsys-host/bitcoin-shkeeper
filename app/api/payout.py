@@ -85,13 +85,12 @@ def payout(to, amount, fee):
         raise Exception(f"{g.symbol} is not defined in config, cannot make payout")
 
 @api.post('/sweep-payout/<to>')
-@api.post('/sweep-payout/<to>/<amount>')
-def sweep_payout(to, amount=None):
+def sweep_payout(to):
     if config['PAYOUTS_DISABLED'] == 1:
         logger.warning("Payout was disabled")
         raise Exception("Payout was disabled")
     if g.symbol == COIN:
-        task = (sweep_payout_task.s(g.symbol, to, amount)).apply_async()
+        task = (sweep_payout_task.s(g.symbol, to)).apply_async()
         return {'task_id': task.id}
     else:
         raise Exception(f"{g.symbol} is not defined in config, cannot make payout")
