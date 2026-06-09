@@ -8,7 +8,7 @@ class TestValue(unittest.TestCase):
         self.assertEqual(str(Value(10)), '10.00000000 BTC')
         self.assertEqual(int(Value(10)), 10)
         self.assertEqual((Value(10).__repr__()),
-                         "Value(value=10.00000000000000, denominator=1.00000000, network='bitcoin')")
+                         "Value(value=10.00000000000000, denominator=1.00000000, network='main')")
         self.assertEqual(str(Value('10')), '10.00000000 BTC')
         self.assertEqual(float(Value('0.001 BTC')), 0.001)
         self.assertEqual(float(Value('1 msat')), 0.00000000001)

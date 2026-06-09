@@ -12,9 +12,9 @@ class TestKeyClasses(unittest.TestCase):
     def test_keys_classes_dunder_methods(self):
         pk = 'xprv9s21ZrQH143K4EDmQNMBqXwUTcrRoUctKkTegGsaBcMLnR1fJkMjVSRwVswjHzJspfWCUwzge1F521cY4wfWD54tzXVUqeo' \
              'TFkZo17HiK2y'
-        with self.assertRaises(BKeyError):
-            k = HDKey(pk)
-        # остальные проверки пропускаем, т.к. объект не создаётся
+        k = HDKey(pk)
+        self.assertTrue(k.is_private)
+        self.assertEqual(k.network.name, 'main')
 
     def test_keys_classes_dunder_methods_mul(self):
         secret_a = 101842203467542661703461476767681059717614296435193763347876672834253776929083
@@ -70,11 +70,11 @@ class TestGetKeyFormat(unittest.TestCase):
 
     def test_format_wif_uncompressed(self):
         key = '5Hwgr3u458GLafKBgxtssHSPqJnYoGrSzgQsPwLFhLNYskDPyyA'
-        self.assertEqual('address', get_key_format(key)['format'])
+        self.assertEqual('wif', get_key_format(key)['format'])
 
     def test_format_wif_compressed(self):
         key = 'L2Q5U2zjxeoSf3dcNZsk19Z9bGr7RMeCTigvv7gJNJQq9uzQnF47'
-        self.assertEqual('address', get_key_format(key)['format'])
+        self.assertEqual('wif_compressed', get_key_format(key)['format'])
 
     def test_format_bin_uncompressed(self):
         key = b'\x04\xa8\x82\xd4\x14\xe4x\x03\x9c\xd5\xb5*\x92\xff\xb1=\xd5\xe6\xbdE\x15It9\xdf\xfdi\x1a\x0f\x12\xaf' \
@@ -84,12 +84,12 @@ class TestGetKeyFormat(unittest.TestCase):
     def test_format_hdkey_private(self):
         key = 'xprv9s21ZrQH143K2JF8RafpqtKiTbsbaxEeUaMnNHsm5o6wCW3z8ySyH4UxFVSfZ8n7ESu7fgir8imbZKLYVBxFPND1pniTZ81v' \
               'Kfd45EHKX73'
-        self.assertEqual('address', get_key_format(key)['format'])
+        self.assertEqual('hdkey_private', get_key_format(key)['format'])
 
     def test_format_hdkey_public(self):
         key = 'xpub6AHA9hZDN11k2ijHMeS5QqHx2KP9aMBRhTDqANMnwVtdyw2TDYRmF8PjpvwUFcL1Et8Hj59S3gTSMcUQ5gAqTz3Wd8EsMTmF3' \
               'DChhqPQBnU'
-        self.assertEqual('address', get_key_format(key)['format'])
+        self.assertEqual('hdkey_public', get_key_format(key)['format'])
 
     def test_format_hdkey_mnemonic(self):
         self.assertEqual(get_key_format('abandon car zoo')['format'], 'mnemonic')
@@ -160,7 +160,7 @@ class TestPrivateKeyImport(unittest.TestCase):
         self.assertEqual(52, len(self.k.wif()))
 
     def test_private_key_import_error_1(self):
-        self.assertRaisesRegex(BKeyError, "Unrecognised key format",
+        self.assertRaisesRegex(BKeyError, "Invalid checksum, not a valid WIF key",
                                 Key, 'L1odb1uUozbfK2NrsMyhJfvRsxGM2axixgPL8vG9BUBnE6W1VyTX')
 
 class TestPublicKeyConversion(unittest.TestCase):
@@ -252,7 +252,7 @@ class TestBip38(unittest.TestCase):
     def test_bip38_other_networks(self):
         if not USING_MODULE_SCRYPT:
             return
-        networks = ['testnet', 'bitcoin']
+        networks = ['testnet', 'main']
         for network in networks:
             k = Key(network=network)
             enc_key = k.encrypt('password')
@@ -414,7 +414,7 @@ class TestKeysSignatures(unittest.TestCase):
                  '304402202b698a0f0a4041b77e63488ad48c23e8e8838dd1fb7520408b121697b782ef2202206875b0fec3497d7cd81291200'
                  '3d5a44ed29650d339299081debf75c29dc4dbc6'),
                 ('c77545c8084b6178366d4e9a06cf99a28d7b5ff94ba8bd76bbbce66ba8cdef70',
-                 HDKey('xprv9s21ZrQH143K2YEun3sBzwSaFLn6bnBa6nkodJrDfZSty6L7Ba9JR5tMdhc7viB9dPu6LpQ9UqrsDsrJ8GNLQHf4SKAzGrXL6Pp5kjojqzi', network='bitcoin'),
+                 HDKey('xprv9s21ZrQH143K2YEun3sBzwSaFLn6bnBa6nkodJrDfZSty6L7Ba9JR5tMdhc7viB9dPu6LpQ9UqrsDsrJ8GNLQHf4SKAzGrXL6Pp5kjojqzi', network='main'),
                  92517795607469467391485978923218300650097355078673652603133403767271895603938,
                  '40aa86a597ecd19aa60c1f18390543cc5c38049a18a8515aed095a4b15e1d8ea2226efba29871477ab925e75356fda036f06d'
                  '293d02fc9b0f9d49e09d8149e9d',
