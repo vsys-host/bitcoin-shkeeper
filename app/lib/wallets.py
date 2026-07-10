@@ -41,8 +41,8 @@ def get_all_key_ids(session, wallet_id, account_id=None, witness_type=None, netw
         q = q.filter(DbKey.witness_type == witness_type)
     if network is not None:
         q = q.filter(DbKey.network_name == network)
-    # if addresses:
-    _logger.warning(f"addresses_in_txs keys_ids get_all_key_ids {addresses} threads")
+    address_count = len(addresses) if addresses else 0
+    _logger.warning("get_all_key_ids by addresses: count=%s", address_count)
     q = q.filter(DbKey.address.in_(addresses))
 
     q = q.order_by(asc(DbKey.id))
@@ -1349,13 +1349,13 @@ class Wallet(object):
         while True:
             n_highest_updated = 0
             something_new = False
-            _logger.warning(f"addresses_in_txs keys using {addresses_in_txs} threads")
+            _logger.warning("addresses_in_txs detected: count=%s", len(addresses_in_txs))
             keys_ids = get_all_key_ids(self.session(), self.wallet_id, account_id=account_id, network=network, addresses=list(seen_addresses))
-            _logger.warning(f"addresses_in_txs keys_ids using {keys_ids} threads")
+            _logger.warning("keys_ids selected for scan: count=%s", len(keys_ids))
             # --- DOGE LTC migration prev_addrs logic ---
             if COIN in ("DOGE", "LTC") and fixed_addresses:
                 keys_ids = self._add_fixed_addresses_keys(keys_ids, txs_list, fixed_addresses, account_id, network, seen_addresses)
-                _logger.warning(f"addresses_in_txs keys_ids _add_fixed_addresses_keys fixed_addresses {keys_ids} threads")
+                _logger.warning("keys_ids after fixed-address merge: count=%s", len(keys_ids))
 
             s = self.session()
             try:
