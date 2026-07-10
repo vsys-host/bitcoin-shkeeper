@@ -13,10 +13,29 @@ def block_during_migration(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         from app.wallet import CoinWallet
-        wallet = CoinWallet().wallet()
 
-        if os.path.isfile(config['WALLET_DAT_PATH']) and not wallet.migrated:
-            logger.warning('Blocked during migration')
+        if not os.path.isfile(config['WALLET_DAT_PATH']):
+            return fn(*args, **kwargs)
+
+        wallet = CoinWallet().wallet()
+        if wallet is None:
+            logger.warning(
+                'Wallet is not available for %s (encryption password not ready, wallet.dat exists=%s)',
+                config.get('COIN_NETWORK', '?'),
+                os.path.isfile(config['WALLET_DAT_PATH']),
+            )
+            return jsonify({
+                'status': 'error',
+                'message': 'Wallet is locked or encryption password not available'
+            }), 503
+
+        if not wallet.migrated:
+            logger.warning(
+                'Blocked during migration for wallet %s (migrated=%s, wallet.dat exists=%s)',
+                wallet.name,
+                wallet.migrated,
+                os.path.isfile(config['WALLET_DAT_PATH']),
+            )
             return jsonify({
                 'status': 'error',
                 'message': 'Blocked during migration'

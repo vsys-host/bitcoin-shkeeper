@@ -184,6 +184,7 @@ class CoinWallet():
         return f"{adj}-{animal}-{unique}"
 
     def generate_address(self):
+        logger.warning("generate_address started for coin=%s network=%s", COIN, config['COIN_NETWORK'])
         if db.session.query(DbWallet).count() == 0:
             wallet_name = self.generate_wallet_name()
             wallet = Wallet.create(
@@ -194,14 +195,21 @@ class CoinWallet():
                 encoding="base58" if COIN == "DOGE" else "bech32"
             )
             address_index = 1
-            logger.warning("Wallet created")
+            logger.warning("Wallet created for %s", COIN)
         else:
             wallet = self.current_wallet()
             db_wallet = self.db_wallet()
             address_index = db_wallet.generated_address_count + 1
             db_wallet.generated_address_count = address_index
             db.session.commit()
-            logger.warning("Updated generated_address_count")
+            logger.warning(
+                "generate_address %s: wallet=%s purpose=%s migrated=%s index=%s",
+                COIN,
+                db_wallet.name,
+                wallet.purpose,
+                db_wallet.migrated,
+                address_index,
+            )
         if COIN == "DOGE":
             from app.lib.keys import  HDKey
             new_key = HDKey(network=config['COIN_NETWORK'], witness_type='legacy')
@@ -225,11 +233,14 @@ class CoinWallet():
             change_path = f"m/84'/{current_index_path}'/0'/1/{address_index}"
             wallet.keys_for_path(path=change_path, account_id=0, network=config['COIN_NETWORK'], witness_type=self.witness_type())
             keys = wallet.keys_for_path(path=path, account_id=0, network=config['COIN_NETWORK'], witness_type=self.witness_type())
+        keys_count = len(keys) if keys else 0
+        logger.warning("generate_address %s: path=%s keys_count=%s", COIN, path, keys_count)
         if not keys:
             logger.warning(f"No keys returned for path {path}")
             return None
 
         address = keys[0].address
+        logger.warning("generate_address finished for coin=%s address=%s", COIN, address)
         return address
 
     def witness_type(self):

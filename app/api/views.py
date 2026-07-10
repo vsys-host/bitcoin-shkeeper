@@ -1,4 +1,4 @@
-from flask import current_app, g
+from flask import current_app, g, jsonify
 from app.logging import logger
 from app.config import config
 from . import api
@@ -10,9 +10,16 @@ from app.utils import block_during_migration
 @api.post("/generate-address")
 @block_during_migration
 def generate_new_address():
+    logger.warning("generate-address request started for symbol=%s", g.symbol)
     w = CoinWallet()
     new_address = w.generate_address()
-    logger.warning(new_address)
+    logger.warning("generate-address request result symbol=%s address=%s", g.symbol, new_address)
+    if not new_address:
+        logger.error("Failed to generate address for symbol=%s", g.symbol)
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to generate address'
+        }), 500
     return {'status': 'success', 'address': new_address}
 
 @api.post('/balance')

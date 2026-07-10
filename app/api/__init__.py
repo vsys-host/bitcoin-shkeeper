@@ -2,6 +2,7 @@ import traceback
 from flask import Blueprint, g, request
 from werkzeug.exceptions import HTTPException
 from ..config import config
+from app.logging import logger
 
 api = Blueprint('api', __name__, url_prefix='/<symbol>')
 metrics_blueprint = Blueprint('metrics_blueprint', __name__, url_prefix='/')
@@ -26,7 +27,8 @@ def pull_symbol(endpoint, values):
 def handle_exception(e):
     if isinstance(e, HTTPException):
         return e
-    return {"status": "error", "msg": str(e)}
+    logger.exception("Unhandled API exception: %s", e)
+    return {"status": "error", "msg": str(e)}, 500
 
 from . import payout, views, metrics
 
