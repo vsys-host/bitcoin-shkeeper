@@ -884,7 +884,7 @@ class Wallet(object):
         )
         sql_params = {"wallet_id": self.wallet_id}
         for i, (txid, output_n) in enumerate(utxo_list):
-            sql_params[f"txid{i}"] = to_bytes(txid)
+            sql_params[f"txid{i}"] = txid if isinstance(txid, (bytes, bytearray)) else to_bytes(txid)
             sql_params[f"n{i}"] = output_n
         sql = f"""
             UPDATE transaction_outputs AS o

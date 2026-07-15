@@ -40,6 +40,8 @@ class TestMarkUtxosSpent(unittest.TestCase):
         self.assertIn("SET o.spent = TRUE", sql)
         params = wallet.session.execute.call_args[0][1]
         self.assertEqual(params["wallet_id"], 42)
+        self.assertEqual(params["txid0"], txid)
+        self.assertEqual(params["txid1"], txid)
         self.assertEqual(params["n0"], 0)
         self.assertEqual(params["n1"], 1)
 
