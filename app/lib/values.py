@@ -226,7 +226,7 @@ class Value:
             cur_code = self.network.currency_symbol
         if currency_repr == 'name':
             cur_code = self.network.currency_name_plural
-        if 'sat' in den_symb and self.network.name == 'bitcoin':
+        if 'sat' in den_symb and self.network.currency_name == 'bitcoin':
             cur_code = ''
         return ("%%.%df %%s%%s" % decimals) % (balance, den_symb, cur_code)
 

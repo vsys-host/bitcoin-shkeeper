@@ -108,7 +108,7 @@ class TestTransactionOutputs(unittest.TestCase):
     def test_transaction_output_value(self):
         to = Output('132.23 satTBTC', address=HDKey(network='testnet').address(), network='testnet')
         self.assertEqual(to.value, 132)
-        self.assertRaisesRegex(ValueError, "Value uses different network \(bitcoin\) then supplied network: testnet",
+        self.assertRaisesRegex(ValueError, r"Value uses different network \(main\) then supplied network: testnet",
                                Output, '1 BTC', address=HDKey(network='testnet').address(), network='testnet')
 
 class TestTransactions(unittest.TestCase):
@@ -882,12 +882,12 @@ class TestTransactions(unittest.TestCase):
         self.assertEqual(t.size, 523)
         self.assertEqual(t.txid, '6961d06e4a921834bbf729a94d7ab423b18ddd92e5ce9661b7b871d852f1db74')
         self.assertEqual(repr(t), '<Transaction(id=6961d06e4a921834bbf729a94d7ab423b18ddd92e5ce9661b7b871d852f1db74, '
-                                  'inputs=3, outputs=2, status=new, network=bitcoin)>')
+                                  'inputs=3, outputs=2, status=new, network=main)>')
         self.assertEqual(str(t), '6961d06e4a921834bbf729a94d7ab423b18ddd92e5ce9661b7b871d852f1db74')
 
     def test_transaction_sendto_wrong_address(self):
-        t = Transaction(network='bitcoin')
-        self.assertRaisesRegex(BKeyError, 'Network bitcoin not found in extracted networks*',
+        t = Transaction(network='main')
+        self.assertRaisesRegex(BKeyError, 'Network main not found in extracted networks*',
                                 t.add_output, 100000, 'LTK1nK5TyGALmSup5SzhgkX1cnVQrC4cLd')
 
     def test_transaction_info(self):
@@ -926,7 +926,7 @@ class TestTransactionsScripts(unittest.TestCase, CustomAssertions):
 
     def test_transaction_lightning_force_close(self):
         txid = '0018f5e7c12f1ba6b75021f72e5037bf07f7625ab5c97c09d5e32c61d276db90'
-        network = 'bitcoin'
+        network = 'main'
         rawtx = ('0200000000010152d28713dfb0014f739821c4b96fe0a72dab4e893aec1df226ddc5e81e3d7e3d0000000000f000000001'
                  'fccb070000000000160014dc754901d5d9299c6b42c315c5e384c89c5eafda03483045022100db8e0480b4f9b44063b635'
                  'c89291a2f9cb860fe05c533c59dbcdb014df1fcd02022010936f2acbfd14bcb010cbaee6b13139f6fec8686edb41d2380c'
@@ -955,7 +955,7 @@ class TestTransactionsScripts(unittest.TestCase, CustomAssertions):
 
     def test_transaction_p2tr_input(self):
         txid = '37777defed8717c581b4c0509329550e344bdc14ac38f71fc050096887e535c8'
-        network = 'bitcoin'
+        network = 'main'
         rawtx = (
             '020000000001027bc0bba407bc67178f100e352bf6e047fae4cbf960d783586cb5e430b3b700e70000000000feffffff7bc0bb'
             'a407bc67178f100e352bf6e047fae4cbf960d783586cb5e430b3b700e70100000000feffffff01b4ba0e000000000016001417'

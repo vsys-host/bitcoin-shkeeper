@@ -20,7 +20,6 @@ from app.lib.main import *
 from sqlalchemy import func, or_, asc, text, exists, select
 from sqlalchemy.exc import OperationalError
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from sqlalchemy.exc import OperationalError
 from functools import lru_cache
 import time
 from contextlib import contextmanager
@@ -74,6 +73,17 @@ def log_time(label):
     finally:
         elapsed = round(time.time() - start, 2)
         _logger.warning(f"✅ Finished: {label} ({elapsed}s)")
+
+
+def _is_deadlock_error(exc):
+    if isinstance(exc, OperationalError):
+        orig = getattr(exc, "orig", None)
+        if orig and getattr(orig, "args", (None,))[0] == 1213:
+            return True
+    msg_lower = str(exc).lower()
+    # Fallback for wrapped/serialized DB errors (e.g. WalletError message text)
+    return "deadlock found" in msg_lower or ("1213" in msg_lower and "deadlock" in msg_lower)
+
 
 class WalletError(Exception):
     def __init__(self, msg=''):
@@ -554,23 +564,31 @@ class WalletTransaction(Transaction):
             self.confirmations = 0
             self.pushed = True
             self.response_dict = srv.results
-            self.store()
-
-            # Update db: Update spent UTXO's, add transaction to database
-            for inp in self.inputs:
-                _logger.info(f"Transaction self.inputs {self.inputs}")
-                txid = inp.prev_txid
-                utxos = self.hdwallet.session.query(DbTransactionOutput).join(DbTransaction).\
-                    filter(DbTransaction.txid == txid,
-                           DbTransactionOutput.output_n == inp.output_n_int,
-                           DbTransactionOutput.spent.is_(False)).all()
-                for u in utxos:
-                    u.spent = True
-
-            self.hdwallet._commit()
-            self.hdwallet._balance_update()
+            self._persist_sent_transaction()
             return None
         self.error = "Transaction not send, unknown response from service providers"
+
+    def _persist_sent_transaction(self, max_retries=5):
+        utxo_set = [(inp.prev_txid, inp.output_n_int) for inp in self.inputs]
+        for attempt in range(max_retries):
+            try:
+                with self.hdwallet.session.no_autoflush:
+                    self.store(commit=False)
+                    self.hdwallet._mark_utxos_spent(utxo_set)
+                self.hdwallet._commit()
+                self.hdwallet._balance_update()
+                return
+            except (OperationalError, WalletError) as e:
+                self.hdwallet.session.rollback()
+                if _is_deadlock_error(e) and attempt + 1 < max_retries:
+                    delay = (2 ** attempt) * 0.05 + random.uniform(0, 0.05)
+                    _logger.warning(
+                        "Deadlock persisting sent transaction, retry %d/%d in %.2fs: %s",
+                        attempt + 1, max_retries, delay, e,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
 
     def store(self, commit=True):
         sess = self.hdwallet.session
@@ -858,7 +876,25 @@ class Wallet(object):
             self.session.rollback()
             raise WalletError("Could not commit to database, rollback performed! Database error: %s" % str(e))
 
-    
+    def _mark_utxos_spent(self, utxo_list):
+        if not utxo_list:
+            return
+        sql_values = " UNION ALL ".join(
+            f"SELECT :txid{i} AS txid, :n{i} AS output_n" for i in range(len(utxo_list))
+        )
+        sql_params = {"wallet_id": self.wallet_id}
+        for i, (txid, output_n) in enumerate(utxo_list):
+            sql_params[f"txid{i}"] = txid if isinstance(txid, (bytes, bytearray)) else to_bytes(txid)
+            sql_params[f"n{i}"] = output_n
+        sql = f"""
+            UPDATE transaction_outputs AS o
+            JOIN transactions AS t ON t.id = o.transaction_id
+            JOIN ({sql_values}) AS u ON t.txid = u.txid AND o.output_n = u.output_n
+            SET o.spent = TRUE
+            WHERE o.spent = FALSE AND t.wallet_id = :wallet_id
+        """
+        self.session.execute(text(sql), sql_params)
+
     @classmethod
     def create(cls, name, keys=None, owner='', network=None, account_id=0, purpose=0, scheme='bip32',
                sort_keys=True, password='', witness_type=None, encoding=None, sigs_required=None,

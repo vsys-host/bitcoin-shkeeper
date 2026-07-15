@@ -844,12 +844,14 @@ class TestScript(unittest.TestCase, CustomAssertions):
         self.assertEqual((str(s)), "redeemscript OP_15 OP_CHECKMULTISIG")
 
         redeemscript_error = '4d0101' + redeemscript
-        self.assertRaisesRegex(ScriptError, "Malformed script, not enough data found", Script.parse_hex,
-                               redeemscript_error)
+        with self.assertLogs('app.lib.scripts', level='WARNING') as logs:
+            Script.parse_hex(redeemscript_error)
+        self.assertTrue(any("Malformed script, not enough data found" in m for m in logs.output))
 
         redeemscript_error = '4d0202' + redeemscript
-        self.assertRaisesRegex(ScriptError, "Malformed script, not enough data found", Script.parse_hex,
-                               redeemscript_error)
+        with self.assertLogs('app.lib.scripts', level='WARNING') as logs:
+            Script.parse_hex(redeemscript_error)
+        self.assertTrue(any("Malformed script, not enough data found" in m for m in logs.output))
 
     def test_script_view(self):
         script = bytes.fromhex(
