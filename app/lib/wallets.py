@@ -843,30 +843,52 @@ class Wallet(object):
                               sort_keys=sort_keys, witness_type=witness_type, parent_id=parent_id, encoding=encoding,
                               multisig_n_required=sigs_required,
                               key_path=key_path, anti_fee_sniping=anti_fee_sniping)
+        _logger.warning(
+            "Wallet._create started: name=%s scheme=%s network=%s purpose=%s",
+            name, scheme, network, purpose,
+        )
         session.add(new_wallet)
-        session.commit()
-        new_wallet_id = new_wallet.id
+        try:
+            session.flush()
+            new_wallet_id = new_wallet.id
 
-        if scheme == 'bip32':
-            mk = WalletKey.from_key(key=key, name=name, session=session, wallet_id=new_wallet_id, network=network,
-                                    account_id=account_id, purpose=purpose, key_type='bip32', encoding=encoding,
-                                    witness_type=witness_type, path=base_path)
-            new_wallet.main_key_id = mk.key_id
-            session.commit()
+            key_id_max = session.query(func.max(DbKey.id)).scalar()
+            new_key_id = (key_id_max or 0) + 1
 
-            w = cls(new_wallet_id, db_cache_uri=db_cache_uri, main_key_object=mk.key())
-            w.key_for_path([], account_id=account_id, change=0, address_index=0)
-        else:  # scheme == 'single': # DOGE
-            if not key:
-                key = HDKey(network=network, depth=key_depth)
-            mk = WalletKey.from_key(key=key, name=name, session=session, wallet_id=new_wallet_id, network=network,
-                                    account_id=account_id, purpose=purpose, key_type='single', encoding=encoding,
-                                    witness_type=witness_type)
-            new_wallet.main_key_id = mk.key_id
-            session.commit()
-            w = cls(new_wallet_id, db_cache_uri=db_cache_uri, main_key_object=mk.key())
+            if scheme == 'bip32':
+                mk = WalletKey.from_key(
+                    key=key, name=name, session=session, wallet_id=new_wallet_id, network=network,
+                    account_id=account_id, purpose=purpose, key_type='bip32', encoding=encoding,
+                    witness_type=witness_type, path=base_path, new_key_id=new_key_id)
+                new_wallet.main_key_id = mk.key_id
 
-        session.close()
+                w = cls(new_wallet_id, db_cache_uri=db_cache_uri, main_key_object=mk.key(), session=session)
+                session.commit()
+
+                w.key_for_path([], account_id=account_id, change=0, address_index=0)
+            else:  # scheme == 'single': # DOGE
+                if not key:
+                    key = HDKey(network=network, depth=key_depth)
+                mk = WalletKey.from_key(
+                    key=key, name=name, session=session, wallet_id=new_wallet_id, network=network,
+                    account_id=account_id, purpose=purpose, key_type='single', encoding=encoding,
+                    witness_type=witness_type, new_key_id=new_key_id)
+                new_wallet.main_key_id = mk.key_id
+
+                w = cls(new_wallet_id, db_cache_uri=db_cache_uri, main_key_object=mk.key(), session=session)
+                session.commit()
+        except Exception as e:
+            _logger.exception(
+                "Wallet._create failed, rolling back: name=%s scheme=%s wallet_id=%s",
+                name, scheme, locals().get('new_wallet_id'),
+            )
+            session.rollback()
+            raise
+
+        _logger.warning(
+            "Wallet._create finished: wallet_id=%s name=%s main_key_id=%s scheme=%s",
+            w.wallet_id, w.name, w.main_key_id, scheme,
+        )
         return w
 
     def _commit(self):
