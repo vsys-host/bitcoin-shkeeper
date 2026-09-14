@@ -59,7 +59,9 @@ def get_transaction(txid):
     # return related_transactions
     if not related_transactions:
         logger.warning(f"txid {txid} is not related to any known address for {g.symbol}")
-        return []
+        # Outgoing payout/sweep with no wallet-owned output: still report the
+        # confirmation count so the payment side can confirm the payout.
+        return [["", 0, confirmations, "send"]]
 
     logger.warning(related_transactions)
     return related_transactions

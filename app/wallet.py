@@ -36,18 +36,42 @@ class CoinWallet():
             if out.key_id is None:
               continue
             addr = out.address
-            # balance_satoshi += out.value
-            # val = Value.from_satoshi(balance_satoshi).value
-            val = Value.from_satoshi(out.value).value
-            details.append({
-                'address': addr,
-                'amount': val,
-                'category': 'receive'
-            })
+            spent = getattr(out, 'spent', False)
+            if not spent:
+                # balance_satoshi += out.value
+                # val = Value.from_satoshi(balance_satoshi).value
+                val = Value.from_satoshi(out.value).value
+                details.append({
+                    'address': addr,
+                    'amount': val,
+                    'category': 'receive'
+                })
+        # for inp in tx.inputs:
+        #     # prev_txid = inp.prev_txid
+        #     # output_n = inp.output_n
+        #     # prev_tx = self.get_tx_by_txid(prev_txid)
+        #     # if prev_tx:
+        #     addr = inp.address
+        #     balance_satoshi -= inp.value
+        #     val = Value.from_satoshi(balance_satoshi).value
+        #     details.append({
+        #         'address': addr,
+        #         'amount': val,
+        #         'category': 'send'
+        #     })
 
+        confs = getattr(tx, 'confirmations', 0) or 0
+        bh = getattr(tx, 'block_height', None)
+        if bh:
+            try:
+                live = self.get_last_block_number() - bh + 1
+                if live > confs:
+                    confs = live
+            except Exception:
+                pass
         return {
             'txid': txid_hex,
-            'confirmations': getattr(tx, 'confirmations', 0),
+            'confirmations': confs,
             'details': details
         }
 
@@ -294,6 +318,34 @@ class CoinWallet():
                     "error": str(e),
                 })
         logger.warning(f'payout_results wallets {payout_results}')
+        return payout_results
+
+    def make_sweep_payout(self, dest):
+        logger.warning(f'make_sweep_payout dest {dest}')
+        if not self.is_valid_address(dest):
+            raise Exception(f"Address {dest} is not valid address")
+        payout_results = []
+        wallet = self.current_wallet()
+        tx = wallet.sweep(dest)
+        swept_sat = sum(i.value for i in tx.inputs) - tx.fee
+        amount_coin = float(Value.from_satoshi(swept_sat).value)
+        try:
+            tx.send()
+            payout_results.append({
+                "dest": dest,
+                "amount": amount_coin,
+                "status": "success",
+                "txids": [str(tx)],
+            })
+        except Exception as e:
+            logger.warning(f"Sweep submit failed: {e}")
+            payout_results.append({
+                "dest": dest,
+                "amount": amount_coin,
+                "status": "error",
+                "error": str(e),
+            })
+        logger.warning(f'make_sweep_payout results {payout_results}')
         return payout_results
 
     def withdraw_to_external_wallet_task(self, payout_list):
