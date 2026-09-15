@@ -3,7 +3,7 @@ import time
 import sqlalchemy
 
 from app.lib.values import Value
-from app.lib.wallets import Wallet, WalletKey
+from app.lib.wallets import Wallet, WalletKey, WalletError
 from app.unlock_acc import get_account_password
 from app.utils import BTCUtils, DOGEUtils, LTCUtils
 
@@ -36,8 +36,8 @@ class WalletService:
             return
         return Wallet(name)
 
-    def db_wallet(self, store_id=None):
-        return store_service.store_wallet(store_id)
+    def db_wallet(self, store_id=None, for_update=False):
+        return store_service.store_wallet(store_id, for_update=for_update)
 
     def all_hd_wallets(self):
         if not get_account_password():
@@ -54,6 +54,7 @@ class WalletService:
                 wallets.append(Wallet(row.name))
             except Exception:
                 logger.exception("Failed to load wallet %s", row.name)
+                raise
         return wallets
 
     def scan_block(self, block_hash, current_block_height):
@@ -86,8 +87,16 @@ class WalletService:
 
     def get_dump(self, store_id=None, scoped=False):
         logger.warning('Start dumping wallets')
+        if not get_account_password():
+            raise PermissionError("Wallet is locked or encryption password not available")
         if scoped:
             store_id = store_service.parse_store_id(store_id, required=True)
+        else:
+            store_id = store_service.parse_store_id(
+                store_id if store_id is not None else store_service.DEFAULT_STORE_ID
+            )
+        if store_id != store_service.DEFAULT_STORE_ID:
+            raise PermissionError("Wallet dump is only allowed for the default store")
         dump = {}
         rows = (
             db.session.query(DbWallet)
@@ -96,13 +105,13 @@ class WalletService:
             .all()
         )
         for row in rows:
-            if scoped and row.store_id != store_id:
+            if row.store_id != store_id:
                 continue
             try:
                 wallet = Wallet(row.name)
             except Exception:
                 logger.exception("Failed to load wallet %s", row.name)
-                continue
+                raise
             for key in wallet.keys():
                 if not key.address:
                     continue
@@ -169,8 +178,10 @@ class WalletService:
                 generated_address_count=1,
             )
             return wallet, True
-        except sqlalchemy.exc.IntegrityError:
+        except (sqlalchemy.exc.IntegrityError, WalletError) as exc:
             db.session.rollback()
+            if isinstance(exc, WalletError) and "already exists" not in str(exc):
+                raise
             logger.warning("Wallet already exists for store_id=%s", store_id)
             existing = self.db_wallet(store_id)
             if existing is None:
@@ -199,18 +210,18 @@ class WalletService:
         )
 
     def _prepare_wallet_for_new_address(self, store_id):
-        db_wallet = self.db_wallet(store_id)
+        db_wallet = self.db_wallet(store_id, for_update=True)
         if db_wallet is None:
             wallet, created = self._create_wallet(store_id)
             if created:
                 logger.warning("Wallet created for %s store_id=%s", COIN, store_id)
                 return wallet, 1
-            db_wallet = self.db_wallet(store_id)
+            db_wallet = self.db_wallet(store_id, for_update=True)
             if db_wallet is None:
                 raise RuntimeError(f"Failed to create wallet for store_id={store_id}")
 
         wallet = Wallet(db_wallet.name)
-        address_index = db_wallet.generated_address_count + 1
+        address_index = (db_wallet.generated_address_count or 0) + 1
         db_wallet.generated_address_count = address_index
         db.session.commit()
         logger.warning(

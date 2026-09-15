@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import sqlalchemy
 
+from app.lib.wallets import WalletError
 from app.services.wallet import WalletService
 
 
@@ -22,6 +23,35 @@ class TestCreateWalletStoreConflict:
         assert wallet is winner
         mock_db.session.rollback.assert_called()
         mock_wallet_cls.assert_called_with("winner-wallet")
+
+    @patch("app.services.wallet.Wallet")
+    @patch("app.services.wallet.db")
+    def test_wallet_error_already_exists_returns_existing(self, mock_db, mock_wallet_cls):
+        mock_wallet_cls.create.side_effect = WalletError("Wallet with name 'store-2' already exists")
+        winner = MagicMock()
+        mock_wallet_cls.return_value = winner
+        existing_row = MagicMock()
+        existing_row.name = "winner-wallet"
+        svc = WalletService()
+        with patch.object(svc, "db_wallet", return_value=existing_row):
+            wallet, created_flag = svc._create_wallet(store_id=2)
+
+        assert created_flag is False
+        assert wallet is winner
+        mock_db.session.rollback.assert_called()
+        mock_wallet_cls.assert_called_with("winner-wallet")
+
+    @patch("app.services.wallet.Wallet")
+    @patch("app.services.wallet.db")
+    def test_other_wallet_error_is_reraised(self, mock_db, mock_wallet_cls):
+        mock_wallet_cls.create.side_effect = WalletError("Please enter wallet name")
+        svc = WalletService()
+        try:
+            svc._create_wallet(store_id=2)
+        except WalletError as exc:
+            assert "Please enter wallet name" in str(exc)
+        else:
+            raise AssertionError("expected unrelated WalletError to raise")
 
     @patch("app.services.wallet.Wallet")
     @patch("app.services.wallet.db")
@@ -70,6 +100,26 @@ class TestPrepareWalletForNewAddress:
         assert idx == 2
         assert winner_row.generated_address_count == 2
 
+    @patch("app.services.wallet.Wallet")
+    @patch("app.services.wallet.db")
+    def test_locks_wallet_row_before_increment(self, mock_db, mock_wallet_cls):
+        svc = WalletService()
+        row = MagicMock()
+        row.name = "store-2"
+        row.generated_address_count = 4
+        row.store_id = 2
+        row.migrated = False
+        mock_wallet_cls.return_value = MagicMock()
+
+        with patch.object(svc, "db_wallet", return_value=row) as db_wallet:
+            wallet, idx = svc._prepare_wallet_for_new_address(2)
+
+        db_wallet.assert_called_with(2, for_update=True)
+        assert idx == 5
+        assert row.generated_address_count == 5
+        mock_db.session.commit.assert_called()
+        assert wallet is mock_wallet_cls.return_value
+
 
 class TestGetDump:
     def _row(self, name, store_id):
@@ -88,9 +138,10 @@ class TestGetDump:
     def _wallets_by_name(self, mock_wallet_cls, wallets):
         mock_wallet_cls.side_effect = lambda name: wallets[name]
 
+    @patch("app.services.wallet.get_account_password", return_value="pw")
     @patch("app.services.wallet.Wallet")
     @patch("app.services.wallet.db")
-    def test_skips_keys_without_address(self, mock_db, mock_wallet_cls):
+    def test_skips_keys_without_address(self, mock_db, mock_wallet_cls, _pw):
         self._query_rows(mock_db, [self._row("w1", 1)])
         wallet = MagicMock()
         wallet.keys.return_value = [
@@ -105,9 +156,10 @@ class TestGetDump:
         assert "bc1qok" in dump
         assert dump["bc1qok"]["wif"] == "wif"
 
+    @patch("app.services.wallet.get_account_password", return_value="pw")
     @patch("app.services.wallet.Wallet")
     @patch("app.services.wallet.db")
-    def test_scoped_dump_includes_only_store_wallet(self, mock_db, mock_wallet_cls):
+    def test_scoped_dump_includes_only_store_wallet(self, mock_db, mock_wallet_cls, _pw):
         self._query_rows(mock_db, [self._row("w1", 1), self._row("w2", 2)])
         w1 = MagicMock()
         w1.keys.return_value = [self._key("bc1qone")]
@@ -119,9 +171,10 @@ class TestGetDump:
 
         assert dump.keys() == {"bc1qone"}
 
+    @patch("app.services.wallet.get_account_password", return_value="pw")
     @patch("app.services.wallet.Wallet")
     @patch("app.services.wallet.db")
-    def test_unscoped_dump_includes_all_wallets(self, mock_db, mock_wallet_cls):
+    def test_unscoped_dump_includes_only_default_store(self, mock_db, mock_wallet_cls, _pw):
         self._query_rows(mock_db, [self._row("w1", 1), self._row("w2", 2)])
         w1 = MagicMock()
         w1.keys.return_value = [self._key("bc1qone")]
@@ -131,7 +184,46 @@ class TestGetDump:
 
         dump = WalletService().get_dump(store_id=1, scoped=False)
 
-        assert dump.keys() == {"bc1qone", "bc1qtwo"}
+        assert dump.keys() == {"bc1qone"}
+
+    @patch("app.services.wallet.get_account_password", return_value="pw")
+    @patch("app.services.wallet.Wallet")
+    @patch("app.services.wallet.db")
+    def test_dump_rejects_non_default_store(self, mock_db, mock_wallet_cls, _pw):
+        try:
+            WalletService().get_dump(store_id=2, scoped=True)
+        except PermissionError as exc:
+            assert "default store" in str(exc)
+        else:
+            raise AssertionError("expected non-default dump to raise")
+        mock_wallet_cls.assert_not_called()
+
+    @patch("app.services.wallet.get_account_password", return_value="pw")
+    @patch("app.services.wallet.Wallet")
+    @patch("app.services.wallet.db")
+    def test_dump_raises_on_wallet_load_failure(self, mock_db, mock_wallet_cls, _pw):
+        self._query_rows(mock_db, [self._row("w1", 1)])
+        mock_wallet_cls.side_effect = Exception("decrypt failed")
+
+        try:
+            WalletService().get_dump(store_id=1, scoped=True)
+        except Exception as exc:
+            assert str(exc) == "decrypt failed"
+        else:
+            raise AssertionError("expected dump load failure to raise")
+
+    @patch("app.services.wallet.get_account_password", return_value=None)
+    @patch("app.services.wallet.Wallet")
+    @patch("app.services.wallet.db")
+    def test_dump_requires_password(self, mock_db, mock_wallet_cls, _pw):
+        try:
+            WalletService().get_dump(store_id=1, scoped=True)
+        except PermissionError as exc:
+            assert "locked" in str(exc).lower()
+        else:
+            raise AssertionError("expected locked wallet dump to raise")
+        mock_wallet_cls.assert_not_called()
+        mock_db.session.query.assert_not_called()
 
 
 class TestScanBlockService:
@@ -155,3 +247,23 @@ class TestScanBlockService:
         mock_wallet_cls.scan_block.assert_called_once_with(
             wallets, block="hash", current_block_height=10
         )
+
+
+class TestAllHdWallets:
+    @patch("app.services.wallet.get_account_password", return_value="pw")
+    @patch("app.services.wallet.Wallet")
+    @patch("app.services.wallet.db")
+    def test_propagates_wallet_load_failure(self, mock_db, mock_wallet_cls, _pw):
+        row = MagicMock()
+        row.name = "broken-wallet"
+        mock_db.session.query.return_value.filter.return_value.order_by.return_value.all.return_value = [
+            row
+        ]
+        mock_wallet_cls.side_effect = Exception("decrypt failed")
+
+        try:
+            WalletService().all_hd_wallets()
+        except Exception as exc:
+            assert str(exc) == "decrypt failed"
+        else:
+            raise AssertionError("expected wallet load failure to raise")

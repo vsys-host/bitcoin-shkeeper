@@ -52,13 +52,16 @@ def _query_all(query):
         return query.all()
 
 
-def store_wallet(store_id=None):
+def store_wallet(store_id=None, for_update=False):
     store_id = parse_store_id(store_id)
-    return _query_first(
+    query = (
         DbWallet.query.filter_by(store_id=store_id)
         .filter(DbWallet.parent_id.is_(None))
         .order_by(DbWallet.id.asc())
     )
+    if for_update:
+        query = query.with_for_update()
+    return _query_first(query)
 
 
 def store_address_keys(store_id=None):
@@ -73,6 +76,27 @@ def store_address_keys(store_id=None):
         )
         .order_by(DbKey.id.asc())
     )
+
+
+def store_key_by_address(store_id, address):
+    """Return the key for this address in the given store, or None."""
+    store_id = parse_store_id(store_id)
+    if not address:
+        return None
+    return _query_first(
+        DbKey.query.join(DbWallet, DbKey.wallet_id == DbWallet.id)
+        .filter(
+            DbWallet.store_id == store_id,
+            DbKey.address == address,
+        )
+        .order_by(DbKey.id.asc())
+    )
+
+
+def address_is_known(address):
+    if not address:
+        return False
+    return _query_first(DbKey.query.filter(DbKey.address == address)) is not None
 
 
 def pick_change_key(keys):

@@ -2437,6 +2437,12 @@ class Wallet(object):
             _logger.info(f"Transaction inputs {inputs}")
             return inputs
 
+    def _owned_change_key(self, change_key_id):
+        change_key = WalletKey(change_key_id, self.session)
+        if change_key.wallet_id != self.wallet_id:
+            raise WalletError("Change key does not belong to this wallet")
+        return change_key
+
     def transaction_create(self, output_arr, input_arr=None, input_key_id=None, account_id=None, network=None, fee=None,
                            min_confirms=1, max_utxos=None, locktime=0, number_of_change_outputs=1,
                            random_output_order=True, replace_by_fee=False, fee_per_kb=None, change_key_id=None):
@@ -2636,7 +2642,7 @@ class Wallet(object):
 
             if change_key_id:
                 number_of_change_outputs = 1
-                change_keys = [WalletKey(change_key_id, self.session)]
+                change_keys = [self._owned_change_key(change_key_id)]
             elif self.scheme == 'single':
                 change_keys = [self.get_key(account_id, self.witness_type, network, change=0)]
             else:

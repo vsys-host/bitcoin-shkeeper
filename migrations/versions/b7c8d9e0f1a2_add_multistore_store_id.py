@@ -17,7 +17,6 @@ depends_on = None
 LEGACY_DEFAULT_STORE_ID = 1
 STORE_ID_INDEX = "uq_wallets_store_id"
 LEGACY_STORE_ID_INDEX = "ix_wallets_store_id"
-KEYS_STORE_ID_INDEX = "ix_keys_store_id"
 
 
 def _inspector():
@@ -68,12 +67,6 @@ def upgrade():
 
     if _column_exists("wallets", "store_id") and not _index_exists("wallets", STORE_ID_INDEX):
         op.create_index(STORE_ID_INDEX, "wallets", ["store_id"], unique=True)
-
-    # Previous revision of this migration put store_id on keys.
-    if _index_exists("keys", KEYS_STORE_ID_INDEX):
-        op.drop_index(KEYS_STORE_ID_INDEX, table_name="keys")
-    if _column_exists("keys", "store_id"):
-        op.drop_column("keys", "store_id")
 
 
 def downgrade():

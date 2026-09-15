@@ -81,7 +81,7 @@ class TestWithdrawToExternalWallet:
         )
         payout_lock.assert_called_once_with(store_id=2)
         payout_instance.withdraw_to_external_wallet_task.assert_called_once_with(
-            [{"source": "bc1qsrc", "dest": "bc1qdst"}]
+            [{"source": "bc1qsrc", "dest": "bc1qdst"}], store_id=2
         )
 
     @patch("app.tasks.payout_lock")

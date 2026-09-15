@@ -6,9 +6,8 @@ from sqlalchemy.exc import PendingRollbackError
 from app.celery_app import celery
 from app.config import COIN, config
 from app.db_import import db
-from app.lib.values import decimal_value_to_satoshi, sat_per_kb_to_sat_per_vbyte
 from app.logging import logger
-from app.services import NodeService
+from app.services import PayoutService
 from app.services import store as store_service
 
 from ..tasks import make_multipayout, withdraw_to_external_wallet_task
@@ -44,6 +43,16 @@ def _require_known_coin():
         raise Exception(f"{g.symbol} is not defined in config, cannot make payout")
 
 
+def _coin_fee_rate(fee):
+    if fee in (None, "", 0, 0.0, "0"):
+        return decimal.Decimal(config["NETWORK_FEE"])
+    value = decimal.Decimal(str(fee))
+    if value >= 1:
+        # mkpayout passes fee_satoshi (sat/vB). make_multipayout expects coin/kB.
+        return value * decimal.Decimal(1000) / decimal.Decimal(100_000_000)
+    return value
+
+
 def _enqueue_multipayout(payout_list, fee, store_id):
     _require_known_coin()
     task = make_multipayout.s(g.symbol, payout_list, fee, store_id).apply_async()
@@ -54,14 +63,15 @@ def _enqueue_multipayout(payout_list, fee, store_id):
 def calc_tx_fee(amount):
     data = request.get_json(silent=True) or {}
     try:
-        store_service.parse_store_id(data.get("store_id"), required=True)
+        store_id = store_service.parse_store_id(data.get("store_id"), required=True)
     except ValueError as exc:
         return {"status": "error", "msg": str(exc)}, 400
 
-    if g.symbol == COIN:
-        fee = decimal_value_to_satoshi(NodeService().get_transaction_price())
-        return {'accounts_num': 1, 'fee': float(fee), 'fee_satoshi': sat_per_kb_to_sat_per_vbyte(fee)}
-    return {'status': 'error', 'msg': 'unknown crypto'}
+    if g.symbol != COIN:
+        return {'status': 'error', 'msg': 'unknown crypto'}
+
+    dest = data.get("dest") or data.get("destination") or data.get("address")
+    return PayoutService().estimate_tx_fee(amount, store_id=store_id, dest=dest)
 
 
 @api.post('/multipayout')
@@ -102,7 +112,7 @@ def payout(to, amount, fee):
     logger.warning(f'starting payout {amount}, to {to}')
     _ensure_payouts_enabled()
     payout_list = [{"dest": to, "amount": amount}]
-    fee_value = decimal.Decimal(fee) if fee else decimal.Decimal(config['NETWORK_FEE'])
+    fee_value = _coin_fee_rate(fee)
     data = request.get_json(silent=True) or {}
     try:
         store_id = store_service.parse_store_id(data.get("store_id"), required=True)
@@ -122,12 +132,13 @@ def get_task(id):
 
     logger.warning(f"response task {task} result {result}")
     if isinstance(result, list):
-        for r in result:
-            if r.get("status") == "error":
-                return {
-                    "status": "FAILURE",
-                    "result": r.get("error"),
-                }
+        errors = [
+            r.get("error") or r.get("msg")
+            for r in result
+            if isinstance(r, dict) and r.get("status") == "error"
+        ]
+        if errors and len(errors) == len(result):
+            return {"status": "FAILURE", "result": errors[0]}
     if isinstance(result, Exception):
         return {"status": "FAILURE", "result": str(result)}
     return {'status': task.status, 'result': result}

@@ -52,6 +52,29 @@ class TestMarkUtxosSpent(unittest.TestCase):
         wallet.session.execute.assert_not_called()
 
 
+class TestOwnedChangeKey(unittest.TestCase):
+    def test_accepts_key_from_this_wallet(self):
+        wallet = Wallet.__new__(Wallet)
+        wallet.wallet_id = 7
+        wallet._session = MagicMock()
+        own_key = MagicMock(wallet_id=7)
+        with patch("app.lib.wallets.WalletKey", return_value=own_key) as key_cls:
+            result = wallet._owned_change_key(11)
+
+        self.assertIs(result, own_key)
+        key_cls.assert_called_once_with(11, wallet.session)
+
+    def test_rejects_key_from_another_wallet(self):
+        wallet = Wallet.__new__(Wallet)
+        wallet.wallet_id = 7
+        wallet._session = MagicMock()
+        other_key = MagicMock(wallet_id=8)
+        with patch("app.lib.wallets.WalletKey", return_value=other_key):
+            with self.assertRaises(WalletError) as ctx:
+                wallet._owned_change_key(99)
+        self.assertIn("does not belong to this wallet", str(ctx.exception))
+
+
 class TestPersistSentTransaction(unittest.TestCase):
     def _make_wallet_transaction(self):
         wt = WalletTransaction.__new__(WalletTransaction)

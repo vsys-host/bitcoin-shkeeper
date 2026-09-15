@@ -45,7 +45,7 @@ def withdraw_to_external_wallet_task(symbol, payout_list, store_id=None):
         w.assert_sources_belong_to_store(payout_list, store_id)
         logger.warning(f"Starting withdraw_to_external_wallet_task {payout_list} store_id={store_id}")
         with payout_lock(store_id=store_id):
-            payout_results = w.withdraw_to_external_wallet_task(payout_list)
+            payout_results = w.withdraw_to_external_wallet_task(payout_list, store_id=store_id)
         post_payout_results.delay(payout_results, symbol)
         return payout_results  
     else:
