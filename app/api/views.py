@@ -1,18 +1,32 @@
-from flask import current_app, g, jsonify
+from flask import g, jsonify, request
+
 from app.logging import logger
-from app.config import config
+from app.services import NodeService, TransactionLookupService, WalletService
+from app.services import store as store_service
+from app.utils import _json_error, block_during_migration
+
 from . import api
-from app import create_app
-from app.lib.values import Value
-from app.wallet import CoinWallet
-from app.utils import block_during_migration
+
+
+def _json():
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _request_store_id(*, required=True):
+    return store_service.parse_store_id(_json().get("store_id"), required=required)
+
 
 @api.post("/generate-address")
 @block_during_migration
 def generate_new_address():
     logger.warning("generate-address request started for symbol=%s", g.symbol)
-    w = CoinWallet()
-    new_address = w.generate_address()
+    try:
+        store_id = _request_store_id()
+    except ValueError as exc:
+        return {"status": "error", "msg": str(exc)}, 400
+
+    new_address = WalletService().generate_address(store_id=store_id)
     logger.warning("generate-address request result symbol=%s address=%s", g.symbol, new_address)
     if not new_address:
         logger.error("Failed to generate address for symbol=%s", g.symbol)
@@ -22,60 +36,101 @@ def generate_new_address():
         }), 500
     return {'status': 'success', 'address': new_address}
 
+
 @api.post('/balance')
 def get_balance():
-    w = CoinWallet()
-    balance = w.get_deposit_account_balance()
+    try:
+        store_id = _request_store_id()
+        balance = WalletService().get_store_balance(store_id=store_id)
+    except ValueError as exc:
+        logger.warning("Balance request failed for %s: %s", getattr(g, "symbol", "?"), exc)
+        return {"status": "error", "msg": str(exc)}, 400
+    except PermissionError as exc:
+        msg = str(exc)
+        status = 503 if "locked" in msg.lower() else 403
+        return _json_error(msg, status)
     return {'status': 'success', 'balance': balance}
+
 
 @api.post('/status')
 @block_during_migration
 def get_status():
-    w = CoinWallet()
-    delta_blocks = w.delta_synced_block()
+    delta_blocks = NodeService().delta_synced_block()
     return {'status': 'success', 'delta_blocks': delta_blocks}
+
 
 @api.post('/transaction/<txid>')
 def get_transaction(txid):
-    w = CoinWallet()
-    transaction = w.get_transaction(txid)
+    try:
+        store_id = _request_store_id()
+    except ValueError as exc:
+        return {"status": "error", "msg": str(exc)}, 400
+
+    transaction = TransactionLookupService().get_transaction(txid, store_id=store_id)
     if not transaction:
         logger.error(f"Cannot receive outputs {txid}: {transaction}")
         return []
 
-    related_transactions = []
-    confirmations = transaction.get("confirmations") or 1
-    for detail in transaction.get("details", []):
-        address = detail.get("address")
-        amount = detail.get('amount', 0)
-        category = detail.get("category", "change")
-        related_transactions.append([
-            address,
-            amount,
+    confirmations = transaction.get("confirmations") or 0
+    related_transactions = [
+        [
+            detail.get("address"),
+            detail.get('amount', 0),
             confirmations,
-            category
-        ])
+            detail.get("category", "change"),
+        ]
+        for detail in transaction.get("details", [])
+    ]
 
-    # return related_transactions
     if not related_transactions:
-        logger.warning(f"txid {txid} is not related to any known address for {g.symbol}")
-        return []
+        logger.warning(
+            "txid %s has no wallet-owned outputs for store_id=%s; returning confirmations=%s",
+            txid,
+            store_id,
+            confirmations,
+        )
+        return [["", 0, confirmations, "change"]]
 
-    logger.warning(related_transactions)
+    logger.debug(related_transactions)
     return related_transactions
+
 
 @api.post('/dump')
 def dump():
-    w = CoinWallet()
-    all_wallets = w.get_dump()
-    return all_wallets
+    try:
+        store_id = _request_store_id()
+        return WalletService().get_dump(store_id=store_id, scoped=True)
+    except ValueError as exc:
+        return {"status": "error", "msg": str(exc)}, 400
+    except PermissionError as exc:
+        msg = str(exc)
+        status = 503 if "locked" in msg.lower() else 403
+        return _json_error(msg, status)
+
 
 @api.post('/fee-deposit-account')
 def get_fee_deposit_account():
-    return {'account': "", 'balance': 0}
+    # Kept for shkeeper UI compatibility. UTXO has no FDA — return store balance
+    # and the first address belonging to the store (may be empty).
+    try:
+        store_id = _request_store_id()
+        wallet = WalletService()
+        return {
+            'account': wallet.first_store_address(store_id=store_id),
+            'balance': wallet.get_store_balance(store_id=store_id),
+        }
+    except ValueError as exc:
+        return {"status": "error", "msg": str(exc)}, 400
+    except PermissionError as exc:
+        msg = str(exc)
+        status = 503 if "locked" in msg.lower() else 403
+        return _json_error(msg, status)
+
 
 @api.post('/get_all_addresses')
 def get_all_addresses():
-    w = CoinWallet()
-    all_addresses_list = w.get_all_accounts()
-    return all_addresses_list
+    try:
+        store_id = _request_store_id()
+    except ValueError as exc:
+        return {"status": "error", "msg": str(exc)}, 400
+    return WalletService().get_all_accounts(store_id=store_id)

@@ -1,7 +1,8 @@
 import time
 from app.logging import logger
 from app.config import config, COIN
-from app.wallet import CoinWallet
+from app.services import NodeService, WalletService
+from app.services.store import DEFAULT_STORE_ID
 from app.tasks import migrate_wallet_task
 from app.models import DbCacheVars
 from app.lib.services.services import Service
@@ -13,18 +14,19 @@ import os
 _node_synced = False
 
 def handle_event(transaction):        
-    logger.info(f'new transaction: {transaction!r}')
+    logger.debug("new transaction: %r", transaction)
 
 def log_loop():
-    coin_wallet = CoinWallet()
-    wallet = coin_wallet.wallet()
+    wallet_service = WalletService()
+    node_service = NodeService()
+    wallet = wallet_service.wallet(store_id=DEFAULT_STORE_ID)
     while wallet is None:
         logger.warning("Wallet not loaded yet, waiting 10 seconds...")
         time.sleep(10)
-        wallet = coin_wallet.wallet()
+        wallet = wallet_service.wallet(store_id=DEFAULT_STORE_ID)
     default_check_interval = int(config.get("CHECK_NEW_BLOCK_EVERY_SECONDS", 60))
     srv = Service(config['COIN_NETWORK'])
-    latest_height = coin_wallet.get_last_block_number()
+    latest_height = node_service.get_last_block_number()
     # value = 917515
     value = wallet.session.query(DbCacheVars.value).filter_by(
         varname='last_scanned_block',
@@ -32,21 +34,27 @@ def log_loop():
     ).scalar()
     logger.info(f"DbCacheVars value {value}")
     if not value:
-        logger.info(f"No last_scanned_block found, initializing with {latest_height}")
+        safe_latest_height = max(0, latest_height - config['SAFE_CONFIRMATIONS'])
+        current_height = max(0, safe_latest_height - 1)
+        logger.info(
+            "No last_scanned_block found, initializing at %s (tip=%s safe=%s)",
+            current_height,
+            latest_height,
+            safe_latest_height,
+        )
         new_var = DbCacheVars(
             varname='last_scanned_block',
             network_name=wallet.network.name,
-            value=str(latest_height),
+            value=str(current_height),
             type='int',
             expires=None
         )
         wallet.session.add(new_var)
         wallet.session.commit()
-        current_height = latest_height
     else:
         current_height = int(value)
     while True:
-        latest_height = coin_wallet.get_last_block_number()
+        latest_height = node_service.get_last_block_number()
         logger.info(f"latest_height {latest_height}")
         logger.info(f"current_height {current_height}")
         safe_latest_height = max(0, latest_height - config['SAFE_CONFIRMATIONS'])
@@ -59,7 +67,7 @@ def log_loop():
                 logger.info(f"Processed block at latest_height {latest_height}")
                 logger.info(f"Processed block at current_height {height}")
                 logger.info(f"block_hash: {block_hash}")
-                wallet.scan(block=block_hash, current_block_height=height)
+                wallet_service.scan_block(block_hash, height)
 
                 wallet.session.query(DbCacheVars).filter_by(
                     varname='last_scanned_block',
@@ -93,8 +101,8 @@ def events_listener():
                 wait_until_node_synced(max_delta_minutes=30)
                 _node_synced = True
 
-            coin_wallet = CoinWallet()
-            wallet = coin_wallet.wallet()
+            wallet_service = WalletService()
+            wallet = wallet_service.wallet(store_id=DEFAULT_STORE_ID)
             now = datetime.utcnow()
 
             migration_flag = wallet.session.query(DbCacheVars).filter_by(
@@ -108,7 +116,7 @@ def events_listener():
                 wallet.session.commit()
                 migration_flag = None
 
-            if os.path.exists(config['WALLET_DAT_PATH']) and not wallet.migrated:
+            if os.path.exists(config['WALLET_DAT_PATH']) and not wallet.migrated and config['ENABLE_WALLET_DAT_MIGRATION'] == 'true':
                 if not migration_flag or migration_flag.value != "in_progress":
                     try:
                         temp_flag = DbCacheVars(
@@ -176,7 +184,7 @@ def events_listener():
                     time.sleep(60)
                     continue
 
-                wallet = coin_wallet.wallet()
+                wallet = wallet_service.wallet(store_id=DEFAULT_STORE_ID)
                 migration_done = wallet.session.query(DbCacheVars).filter_by(
                     varname="wallet_migrated",
                     network_name=wallet.network.name
@@ -201,12 +209,12 @@ def wait_for_account_password(interval=20):
         time.sleep(interval)
 
 def wait_until_node_synced(max_delta_minutes=30, check_interval=120, error_interval=60):
-    coin_wallet = CoinWallet()
+    node_service = NodeService()
     max_delta_seconds = max_delta_minutes * 60
 
     while True:
         try:
-            info = coin_wallet.getblockchaininfo()
+            info = node_service.getblockchaininfo()
             logger.info(f"Retrieved blockchain info: {info}")
         except Exception as e:
             logger.exception(f"Failed to get blockchain info: {e}")
@@ -219,7 +227,8 @@ def wait_until_node_synced(max_delta_minutes=30, check_interval=120, error_inter
             continue
         now_ts = time.time()
         logger.info(f"Node now_ts {now_ts}")
-        delta = abs(now_ts - time_last_block)
+        # Future nTime is allowed by Bitcoin (~2h); only a stale tip means unsynced.
+        delta = now_ts - time_last_block
         logger.info(f"Node delta {delta}")
         if delta <= max_delta_seconds:
             logger.info(f"Node synced (time_last_block={time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(time_last_block))})")

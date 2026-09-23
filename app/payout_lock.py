@@ -1,4 +1,4 @@
-"""Serialize payouts so concurrent workers cannot double-spend the same UTXOs."""
+"""Serialize payouts per store so concurrent workers cannot double-spend the same UTXOs."""
 from contextlib import contextmanager
 from threading import Event, Thread
 
@@ -6,6 +6,7 @@ import redis
 
 from app.config import COIN, config
 from app.logging import logger
+from app.services.store import parse_store_id
 
 # Payout builds can take several minutes (signing many inputs).
 _DEFAULT_LOCK_TIMEOUT = int(config.get('PAYOUT_LOCK_TIMEOUT', 1200))
@@ -34,11 +35,12 @@ def _lock_heartbeat(lock, timeout, stop_event):
 
 
 @contextmanager
-def payout_lock(timeout=None, blocking_timeout=None):
+def payout_lock(*, store_id=None, timeout=None, blocking_timeout=None):
     timeout = _DEFAULT_LOCK_TIMEOUT if timeout is None else timeout
     blocking_timeout = _DEFAULT_BLOCKING_TIMEOUT if blocking_timeout is None else blocking_timeout
+    store_id = parse_store_id(store_id, required=True)
     client = _redis_client()
-    lock_key = f"{COIN}:payout_lock"
+    lock_key = f"{COIN}:payout_lock:{store_id}"
     lock = client.lock(
         lock_key,
         timeout=timeout,

@@ -1,27 +1,34 @@
-import traceback
 from flask import Blueprint, g, request
 from werkzeug.exceptions import HTTPException
+
 from ..config import config
 from app.logging import logger
 
 api = Blueprint('api', __name__, url_prefix='/<symbol>')
 metrics_blueprint = Blueprint('metrics_blueprint', __name__, url_prefix='/')
 
+
 @metrics_blueprint.before_request
 @api.before_request
 def check_credentials():
     auth = request.authorization
-    if not (auth and auth.username == config['API_USERNAME']
-                 and auth.password == config['API_PASSWORD']):
-            return {'status': 'error', 'msg': 'authorization requred'}, 401
+    if not (
+        auth
+        and auth.username == config['API_USERNAME']
+        and auth.password == config['API_PASSWORD']
+    ):
+        return {'status': 'error', 'msg': 'authorization required'}, 401
+
 
 @api.url_defaults
 def add_symbol(endpoint, values):
     values.setdefault('symbol', g.symbol)
 
+
 @api.url_value_preprocessor
 def pull_symbol(endpoint, values):
     g.symbol = values.pop('symbol').upper()
+
 
 @api.errorhandler(Exception)
 def handle_exception(e):
@@ -30,6 +37,5 @@ def handle_exception(e):
     logger.exception("Unhandled API exception: %s", e)
     return {"status": "error", "msg": str(e)}, 500
 
-from . import payout, views, metrics
 
-
+from . import payout, views, metrics  # noqa: E402,F401

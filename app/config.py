@@ -58,6 +58,7 @@ config = {
     'ACCOUNT_RESERVED_AMOUNT': os.environ.get('ACCOUNT_RESERVED_AMOUNT', "0.000001"),
     'MIN_CONFIRMS': os.environ.get('MIN_CONFIRMS', "1"),
     'WALLET_DAT_PATH': os.environ.get('WALLET_DAT_PATH', BASE_WALLET_PATHS[COIN]),
+    'ENABLE_WALLET_DAT_MIGRATION': os.environ.get('ENABLE_WALLET_DAT_MIGRATION', 'false'),
     'TIME_WALLET_CREATED': os.environ.get('TIME_WALLET_CREATED'),
     'COIN_NETWORK': os.environ.get(f"{COIN}_NETWORK", "main"),  # main, testnet, regtest
 }

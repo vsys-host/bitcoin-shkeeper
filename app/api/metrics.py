@@ -3,10 +3,11 @@ import logging
 import prometheus_client
 from prometheus_client import Gauge, generate_latest
 
-from . import metrics_blueprint
 from app.config import config
 from app.models import DbCacheVars, db
-from app.wallet import CoinWallet
+from app.services import NodeService
+
+from . import metrics_blueprint
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +37,7 @@ bitcoin_wallet_last_block_timestamp = Gauge(
 )
 
 
-def get_all_metrics():
-    try:
-        info = CoinWallet().getblockchaininfo() or {}
-    except Exception as exc:
-        logger.exception("Fullnode status fetch failed: %s", exc)
-        return None
-
+def _blockchain_snapshot(info):
     try:
         is_synced = info.get("initialblockdownload") is False
         blocks = int(info.get("blocks", 0) or 0)
@@ -53,10 +48,10 @@ def get_all_metrics():
         is_synced = False
         blocks = 0
         block_timestamp = 0
+    return is_synced, blocks, block_timestamp
 
-    if not is_synced:
-        return {"bitcoin_fullnode_status": 0}
 
+def _wallet_last_scanned_block():
     try:
         wallet_last_block_raw = (
             db.session.query(DbCacheVars.value)
@@ -66,42 +61,54 @@ def get_all_metrics():
             )
             .scalar()
         )
-        wallet_last_block = int(wallet_last_block_raw or 0)
+        return int(wallet_last_block_raw or 0)
     except Exception as exc:
         logger.warning("Wallet last_scanned_block fetch failed: %s", exc)
-        wallet_last_block = 0
+        return 0
 
-    wallet_block_timestamp = 0
+
+def get_all_metrics():
+    try:
+        info = NodeService().getblockchaininfo() or {}
+    except Exception as exc:
+        logger.exception("Fullnode status fetch failed: %s", exc)
+        return None
+
+    is_synced, blocks, block_timestamp = _blockchain_snapshot(info)
+    if not is_synced:
+        return {"bitcoin_fullnode_status": 0}
 
     return {
         "bitcoin_fullnode_status": 1,
         "last_fullnode_block_number": blocks,
         "last_fullnode_block_timestamp": block_timestamp,
-        "bitcoin_wallet_last_block": wallet_last_block,
-        "bitcoin_wallet_last_block_timestamp": wallet_block_timestamp,
+        "bitcoin_wallet_last_block": _wallet_last_scanned_block(),
+        "bitcoin_wallet_last_block_timestamp": 0,
     }
+
+
+def _set_metric_gauges(data):
+    bitcoin_fullnode_status.set(data.get("bitcoin_fullnode_status", 0))
+    if data["bitcoin_fullnode_status"] != 1:
+        return
+    bitcoin_fullnode_last_block.set(data.get("last_fullnode_block_number", 0))
+    bitcoin_fullnode_last_block_timestamp.set(
+        data.get("last_fullnode_block_timestamp", 0)
+    )
+    bitcoin_wallet_last_block.set(data.get("bitcoin_wallet_last_block", 0))
+    bitcoin_wallet_last_block_timestamp.set(
+        data.get("bitcoin_wallet_last_block_timestamp", 0)
+    )
 
 
 @metrics_blueprint.get("/metrics")
 def get_metrics():
     try:
         data = get_all_metrics()
-
         if not data:
             bitcoin_fullnode_status.set(0)
             return generate_latest().decode()
-
-        bitcoin_fullnode_status.set(data.get("bitcoin_fullnode_status", 0))
-
-        if data["bitcoin_fullnode_status"] == 1:
-            bitcoin_fullnode_last_block.set(data.get("last_fullnode_block_number", 0))
-            bitcoin_fullnode_last_block_timestamp.set(
-                data.get("last_fullnode_block_timestamp", 0)
-            )
-            bitcoin_wallet_last_block.set(data.get("bitcoin_wallet_last_block", 0))
-            bitcoin_wallet_last_block_timestamp.set(
-                data.get("bitcoin_wallet_last_block_timestamp", 0)
-            )
+        _set_metric_gauges(data)
     except Exception as exc:
         logger.exception("Metrics endpoint failed completely: %s", exc)
         bitcoin_fullnode_status.set(0)

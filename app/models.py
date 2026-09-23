@@ -66,6 +66,8 @@ class DbWallet(db.Model):
     key_path = db.Column(db.String(100))
     anti_fee_sniping = db.Column(db.Boolean, default=True)
     default_account_id = db.Column(db.Integer, default=0)
+    # Source of truth for store ownership. One HD wallet belongs to one store.
+    store_id = db.Column(db.Integer)
     keys = db.relationship("DbKey", backref="wallet", lazy=True)
     transactions = db.relationship("DbTransaction", backref="wallet", lazy=True)
     children = db.relationship("DbWallet", backref=db.backref('parent', remote_side=[id]), lazy=True)
@@ -75,6 +77,7 @@ class DbWallet(db.Model):
         db.CheckConstraint(encoding.in_(['base58', 'bech32']), name='constraint_default_address_encodings_allowed'),
         db.CheckConstraint(witness_type.in_(['legacy', 'segwit', 'p2sh-segwit', 'p2tr']),
                            name='wallet_constraint_allowed_types'),
+        db.UniqueConstraint('store_id', name='uq_wallets_store_id'),
     )
 
 class DbKey(db.Model):

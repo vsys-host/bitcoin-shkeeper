@@ -131,3 +131,7 @@ class TestValue(unittest.TestCase):
         self.assertAlmostEqual(float(Value('2 BTC') / 3), 0.66666666)
         self.assertEqual(float(Value('2000 BTC') // 3), 666)
         self.assertEqual(int(Value('2000 BTC') / 3), 666)
+
+    def test_decimal_value_to_satoshi_accepts_int(self):
+        self.assertEqual(decimal_value_to_satoshi(0), 0)
+        self.assertEqual(decimal_value_to_satoshi(1), 100_000_000)

@@ -12,10 +12,15 @@ def get_account_password():
         return acc_password
     else:
         logger.warning("Get password from shkeeper")
-        resp = rq.get(
-            f'http://{config["SHKEEPER_HOST"]}/api/v1/{COIN}/decrypt',
-            headers={'X-Shkeeper-Backend-Key': config['SHKEEPER_KEY']}
-        )
+        try:
+            resp = rq.get(
+                f'http://{config["SHKEEPER_HOST"]}/api/v1/{COIN}/decrypt',
+                headers={'X-Shkeeper-Backend-Key': config['SHKEEPER_KEY']},
+                timeout=5,
+            )
+        except rq.RequestException as exc:
+            logger.warning("Shkeeper decrypt endpoint is not ready yet: %s", exc)
+            return False
         r = resp.json()
         if r['persistent_status'] == "disabled":
             logger.warning('Encryption is disabled')

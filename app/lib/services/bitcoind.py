@@ -266,6 +266,9 @@ class BitcoindClient(BaseClient):
         res = self.proxy.getrawtransaction(txid)
         return res
 
+    def getverbosetransaction(self, txid):
+        return self.proxy.getrawtransaction(txid, 1)
+
     def sendrawtransaction(self, rawtx):
         started = time.perf_counter()
         tx_size = len(rawtx) // 2 if isinstance(rawtx, str) else len(rawtx)
@@ -308,7 +311,10 @@ class BitcoindClient(BaseClient):
     def synced_status(self):
         bcinfo = self.proxy.getblockchaininfo()
         not_synced_block = bcinfo['headers'] - bcinfo['blocks']
-        last_scanned_block_obj = db.session.query(DbCacheVars).filter_by(varname='last_scanned_block').scalar()
+        last_scanned_block_obj = db.session.query(DbCacheVars).filter_by(
+            varname='last_scanned_block',
+            network_name=config['COIN_NETWORK'],
+        ).scalar()
         if last_scanned_block_obj is None:
             last_scanned_block = 0
         else:

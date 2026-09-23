@@ -28,9 +28,12 @@ def decimal_value_to_satoshi(value, network=DEFAULT_NETWORK):
         value = Decimal(value)
     elif isinstance(value, float):
         value = Decimal(str(value))
+    elif isinstance(value, int) and not isinstance(value, bool):
+        # Celery JSON turns Decimal("0") into int 0
+        value = Decimal(value)
 
     if not isinstance(value, Decimal):
-        raise TypeError(f"value must be Decimal, str, float or Value, got {type(value)}")
+        raise TypeError(f"value must be Decimal, str, float, int or Value, got {type(value)}")
 
     return Value(value, network=network).value_sat
 
